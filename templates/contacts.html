@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+
+{% block title %}Контакты{% endblock %}
+
+{% block body %}
+<meta http-equiv="refresh" content="5">
+<div class="container-fluid mt-3">
+  <div class="row">
+    <div class="col-md-4 border-end" style="height: 80vh; overflow-y: auto;">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4>Контакты</h4>
+        <a href="/contacts/manage" class="btn btn-sm btn-outline-secondary">Связи</a>
+      </div>
+      {% if contacts %}
+        <div class="list-group">
+        {% for c in contacts %}
+          <a href="/contacts/{{ c.id }}"
+             class="list-group-item list-group-item-action {% if selected and selected.id == c.id %}active{% endif %}">
+            {{ c.display_name }}
+          </a>
+        {% endfor %}
+        </div>
+      {% else %}
+        <p class="text-muted">Контактов пока нет — пришлите первое уведомление с устройства.</p>
+      {% endif %}
+    </div>
+    <div class="col-md-8" style="height: 80vh; overflow-y: auto;">
+      {% if selected %}
+        <h4>{{ selected.display_name }}</h4>
+        {% if messages %}
+          {% for m in messages %}
+            <div class="card mb-2">
+              <div class="card-body py-2 px-3">
+                <small class="text-muted">[{{ m.messenger_name }}] {{ m.sender }} · {{ m.time }}</small>
+                <div>{{ m.text }}</div>
+              </div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <p class="text-muted">Нет сообщений.</p>
+        {% endif %}
+      {% else %}
+        <p class="text-muted mt-5 text-center">Выберите контакт слева.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

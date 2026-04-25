@@ -120,12 +120,53 @@ def register_routes(app: Flask) -> None:
 
     @app.route('/messages')
     def messages():
+        return redirect('/contacts')
+
+    @app.route('/contacts')
+    def contacts_index():
         if not session.get('user_id'):
             return redirect('/login')
+        from data.contacts import Contact
         db = get_db()
         user_id = session['user_id']
-        msgs = db.query(Messages).filter(Messages.user_id == user_id).order_by(Messages.id.desc()).all()
-        return render_template('chats.html', messages=msgs)
+        contacts = (
+            db.query(Contact)
+            .filter(Contact.user_id == user_id)
+            .order_by(Contact.display_name.asc())
+            .all()
+        )
+        return render_template('contacts.html', contacts=contacts, selected=None, messages=None)
+
+    @app.route('/contacts/<int:contact_id>')
+    def contact_detail(contact_id):
+        if not session.get('user_id'):
+            return redirect('/login')
+        from data.contacts import Contact, MessengerHandle
+        db = get_db()
+        user_id = session['user_id']
+        contact = (
+            db.query(Contact)
+            .filter(Contact.id == contact_id, Contact.user_id == user_id)
+            .first()
+        )
+        if not contact:
+            return 'Not Found', 404
+
+        contacts = (
+            db.query(Contact)
+            .filter(Contact.user_id == user_id)
+            .order_by(Contact.display_name.asc())
+            .all()
+        )
+        handle_ids = [h.id for h in
+                      db.query(MessengerHandle).filter(MessengerHandle.contact_id == contact.id).all()]
+        msgs = (
+            db.query(Messages)
+            .filter(Messages.handle_id.in_(handle_ids))
+            .order_by(Messages.created_at.desc().nullslast(), Messages.id.desc())
+            .all()
+        )
+        return render_template('contacts.html', contacts=contacts, selected=contact, messages=msgs)
 
     @app.route('/add', methods=['POST'])
     def add_message():
