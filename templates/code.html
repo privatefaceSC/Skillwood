@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Ваш код подключения
+{% endblock %}
+
+{% block body %}
+<meta http-equiv="refresh" content="3">
+<div class="container text-center mt-5">
+    <h1>Подключите устройство</h1>
+    
+    <p class="mt-4">Введите этот код в приложении MacroDroid на вашем устройстве:</p>
+    
+    <div class="display-1 fw-bold text-primary my-4">
+        {{ code }}
+    </div>
+
+    
+    <hr class="my-4">
+
+</div>
+{% endblock %}

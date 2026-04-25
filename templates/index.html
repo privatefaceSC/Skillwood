@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Главная страница</title>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: Arial; margin: 20px; background: #f0f0f0; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .btn { display: inline-block; padding: 10px 20px; border-radius: 8px; text-decoration: none; margin-right: 10px; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-primary:hover { background: #0056b3; }
+        .btn-danger:hover { background: #c82333; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        h1 { margin: 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="header">
+                <h1>Главная страница</h1>
+                <div>
+                    <a href="/messages" class="btn btn-primary">Чаты</a>
+                    <a href="/logout" class="btn btn-danger">Выход</a>
+                </div>
+            </div>
+            <h2>Привет, {{ user.name }}!</h2>
+        </div>
+    </div>
+</body>
+</html>

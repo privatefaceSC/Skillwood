@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Регистрация
+{% endblock %}
+{% block body %}
+<div class="container">
+  <h1><b>Регистрация</b></h1>
+      {% if message %}
+        <div class="alert alert-danger" role="alert">
+        {{ message }}
+        </div>
+      {% endif %}
+
+  <form class="needs-validation" method="POST">
+    <div class="row g-3">
+        <div class="col-sm-6">
+            <label for="name" class="form-label">Имя</label>
+            <input type="text" class="form-control" id="name" name="name" required>
+        </div>
+
+        <div class="col-sm-6">
+            <label for="surname" class="form-label">Фамилия</label>
+            <input type="text" class="form-control" id="surname" name="surname" required>
+        </div>
+
+        <div class="col-12">
+            <label for="email" class="form-label">Email</label>
+            <input type="email" class="form-control" id="email" name="email" required>
+        </div>
+
+        <div class="col-12">
+            <label for="password" class="form-label">Пароль</label>
+            <input type="password" class="form-control" id="password" name="password" required>
+        </div>
+
+        <div class="col-12">
+            <label for="confirm_password" class="form-label">Подтверждение пароля</label>
+            <input type="password" class="form-control" id="confirm_password" name="confirm_password" required>
+        </div>
+
+        <div class="col-12">
+            <label class="form-label">Пол</label>
+            <div class="mt-2">
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="sex" id="male" value="male" checked>
+                    <label class="form-check-label" for="male">Мужской</label>
+                </div>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="sex" id="female" value="female">
+                    <label class="form-check-label" for="female">Женский</label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <hr class="my-4">
+
+    <button class="w-100 btn btn-primary btn-lg" type="submit">Зарегистрироваться</button>
+  </form>
+</div>
+{% endblock %}
