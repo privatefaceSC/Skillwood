@@ -2,11 +2,52 @@ import random
 import string
 from datetime import datetime
 
-from flask import Flask, g, redirect, render_template, request, session
+from flask import Flask, g, jsonify, redirect, render_template, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from data import db_sessions
 from data.users import Messages, User
+
+
+_AVATAR_PALETTE = [
+    "#ef4444", "#f59e0b", "#10b981", "#3b82f6",
+    "#8b5cf6", "#ec4899", "#14b8a6", "#f97316",
+]
+
+
+def _avatar_for(contact):
+    name = (contact.display_name or "?").strip()
+    contact.initial = name[:1].upper() if name else "?"
+    contact.avatar_color = _AVATAR_PALETTE[contact.id % len(_AVATAR_PALETTE)]
+    return contact
+
+
+def _enrich_with_last_message(db, contacts):
+    """Для каждого контакта подкладывает last_preview / last_time / last_at."""
+    from data.contacts import MessengerHandle
+
+    for c in contacts:
+        _avatar_for(c)
+        last = (
+            db.query(Messages)
+            .join(MessengerHandle, Messages.handle_id == MessengerHandle.id)
+            .filter(MessengerHandle.contact_id == c.id)
+            .order_by(Messages.created_at.desc().nullslast(), Messages.id.desc())
+            .first()
+        )
+        if last:
+            c.last_preview = last.text
+            c.last_time = last.time
+            c.last_at = last.created_at
+        else:
+            c.last_preview = None
+            c.last_time = None
+            c.last_at = None
+    contacts.sort(
+        key=lambda c: (c.last_at or datetime.min),
+        reverse=True,
+    )
+    return contacts
 
 
 def create_app(db_path: str = "db/blogs.db") -> Flask:
@@ -46,8 +87,24 @@ def register_routes(app: Flask) -> None:
 
     @app.route('/home')
     def index():
-        user = get_db().query(User).filter(User.id == session['user_id']).first()
-        return render_template('index.html', user=user)
+        if not session.get('user_id'):
+            return redirect('/login')
+        from data.contacts import Contact, MergeSuggestion
+        db = get_db()
+        user = db.query(User).filter(User.id == session['user_id']).first()
+        contacts_count = db.query(Contact).filter(Contact.user_id == user.id).count()
+        messages_count = db.query(Messages).filter(Messages.user_id == user.id).count()
+        pending_suggestions = (db.query(MergeSuggestion)
+                               .filter(MergeSuggestion.user_id == user.id,
+                                       MergeSuggestion.status == "pending").count())
+        return render_template(
+            'index.html',
+            user=user,
+            device_connected=bool(user.tablet_ip),
+            contacts_count=contacts_count,
+            messages_count=messages_count,
+            pending_suggestions=pending_suggestions,
+        )
 
     @app.route('/register', methods=['GET', 'POST'])
     def register():
@@ -132,10 +189,11 @@ def register_routes(app: Flask) -> None:
         contacts = (
             db.query(Contact)
             .filter(Contact.user_id == user_id)
-            .order_by(Contact.display_name.asc())
             .all()
         )
-        return render_template('contacts.html', contacts=contacts, selected=None, messages=None)
+        _enrich_with_last_message(db, contacts)
+        return render_template('contacts.html', contacts=contacts,
+                               selected=None, selected_handles=[], messages=None)
 
     @app.route('/contacts/<int:contact_id>')
     def contact_detail(contact_id):
@@ -155,18 +213,45 @@ def register_routes(app: Flask) -> None:
         contacts = (
             db.query(Contact)
             .filter(Contact.user_id == user_id)
-            .order_by(Contact.display_name.asc())
             .all()
         )
-        handle_ids = [h.id for h in
-                      db.query(MessengerHandle).filter(MessengerHandle.contact_id == contact.id).all()]
+        _enrich_with_last_message(db, contacts)
+        _avatar_for(contact)
+
+        handles = db.query(MessengerHandle).filter(MessengerHandle.contact_id == contact.id).all()
+        handle_ids = [h.id for h in handles]
+        selected_handles = [f"{h.messenger_name}: {h.sender_raw}" for h in handles]
         msgs = (
             db.query(Messages)
             .filter(Messages.handle_id.in_(handle_ids))
             .order_by(Messages.created_at.desc().nullslast(), Messages.id.desc())
             .all()
         )
-        return render_template('contacts.html', contacts=contacts, selected=contact, messages=msgs)
+        return render_template('contacts.html', contacts=contacts, selected=contact,
+                               selected_handles=selected_handles, messages=msgs)
+
+    @app.route('/contacts/<int:contact_id>/messages.json')
+    def contact_messages_json(contact_id):
+        if not session.get('user_id'):
+            return jsonify({'error': 'unauthorized'}), 401
+        from data.contacts import Contact, MessengerHandle
+        db = get_db()
+        user_id = session['user_id']
+        contact = (db.query(Contact)
+                   .filter(Contact.id == contact_id, Contact.user_id == user_id).first())
+        if not contact:
+            return jsonify({'error': 'not_found'}), 404
+        handle_ids = [h.id for h in
+                      db.query(MessengerHandle).filter(MessengerHandle.contact_id == contact.id).all()]
+        msgs = (db.query(Messages)
+                .filter(Messages.handle_id.in_(handle_ids))
+                .order_by(Messages.created_at.desc().nullslast(), Messages.id.desc())
+                .all())
+        return jsonify({'messages': [
+            {'id': m.id, 'sender': m.sender, 'text': m.text,
+             'messenger_name': m.messenger_name, 'time': m.time}
+            for m in msgs
+        ]})
 
     @app.route('/contacts/manage')
     def contacts_manage():
@@ -177,14 +262,21 @@ def register_routes(app: Flask) -> None:
         user_id = session['user_id']
         all_contacts = (db.query(Contact).filter(Contact.user_id == user_id)
                         .order_by(Contact.display_name.asc()).all())
+        for c in all_contacts:
+            _avatar_for(c)
         handles = (db.query(MessengerHandle).filter(MessengerHandle.user_id == user_id)
                    .order_by(MessengerHandle.messenger_name.asc()).all())
+        contact_handles = {c.id: [] for c in all_contacts}
+        for h in handles:
+            contact_handles.setdefault(h.contact_id, []).append(h)
         suggestions = (db.query(MergeSuggestion)
                        .filter(MergeSuggestion.user_id == user_id,
                                MergeSuggestion.status == "pending")
                        .order_by(MergeSuggestion.score.desc()).all())
         return render_template('contacts_manage.html',
-                               all_contacts=all_contacts, handles=handles, suggestions=suggestions)
+                               all_contacts=all_contacts,
+                               contact_handles=contact_handles,
+                               suggestions=suggestions)
 
     @app.route('/contacts/<int:contact_id>/rename', methods=['POST'])
     def contact_rename(contact_id):
@@ -309,4 +401,4 @@ def _generate_code() -> str:
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=True)

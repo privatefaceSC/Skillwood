@@ -1,48 +1,158 @@
 {% extends 'base.html' %}
 
-{% block title %}Контакты{% endblock %}
+{% block title %}{% if selected %}{{ selected.display_name }}{% else %}Контакты{% endif %}{% endblock %}
 
 {% block body %}
-<meta http-equiv="refresh" content="5">
-<div class="container-fluid mt-3">
-  <div class="row">
-    <div class="col-md-4 border-end" style="height: 80vh; overflow-y: auto;">
-      <div class="d-flex justify-content-between align-items-center mb-3">
-        <h4>Контакты</h4>
-        <a href="/contacts/manage" class="btn btn-sm btn-outline-secondary">Связи</a>
-      </div>
-      {% if contacts %}
-        <div class="list-group">
-        {% for c in contacts %}
-          <a href="/contacts/{{ c.id }}"
-             class="list-group-item list-group-item-action {% if selected and selected.id == c.id %}active{% endif %}">
-            {{ c.display_name }}
-          </a>
-        {% endfor %}
-        </div>
-      {% else %}
-        <p class="text-muted">Контактов пока нет — пришлите первое уведомление с устройства.</p>
-      {% endif %}
-    </div>
-    <div class="col-md-8" style="height: 80vh; overflow-y: auto;">
-      {% if selected %}
-        <h4>{{ selected.display_name }}</h4>
-        {% if messages %}
-          {% for m in messages %}
-            <div class="card mb-2">
-              <div class="card-body py-2 px-3">
-                <small class="text-muted">[{{ m.messenger_name }}] {{ m.sender }} · {{ m.time }}</small>
-                <div>{{ m.text }}</div>
-              </div>
+<style>
+    .contacts-shell { height: calc(100vh - 110px); }
+    .contact-list { height: 100%; overflow-y: auto; background: #fff; border-radius: 12px; }
+    .contact-row {
+        display: flex; gap: 12px; align-items: center; padding: 12px 14px;
+        border-bottom: 1px solid #eef0f3; text-decoration: none; color: inherit;
+        transition: background 0.1s;
+    }
+    .contact-row:hover { background: #f7f9fc; color: inherit; }
+    .contact-row.active { background: #e7f1ff; }
+    .contact-row .name { font-weight: 600; color: #1a2230; }
+    .contact-row .preview {
+        color: #6b7280; font-size: 13px; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis;
+    }
+    .contact-row .time { font-size: 11px; color: #9ca3af; flex: 0 0 auto; }
+    .contact-meta { flex: 1; min-width: 0; }
+    .feed { height: 100%; overflow-y: auto; background: #fff; border-radius: 12px; padding: 16px 20px; }
+    .feed-header {
+        display: flex; align-items: center; gap: 12px;
+        padding-bottom: 12px; border-bottom: 1px solid #eef0f3; margin-bottom: 12px;
+    }
+    .bubble-row { display: flex; flex-direction: column; margin-bottom: 12px; max-width: 80%; }
+    .bubble-row .source {
+        font-size: 11px; color: #6b7280; margin-bottom: 2px; padding-left: 4px;
+    }
+    .bubble {
+        background: #f1f3f5; padding: 8px 12px; border-radius: 14px 14px 14px 4px;
+        word-wrap: break-word; line-height: 1.35;
+    }
+    .bubble .text { color: #1a2230; }
+    .bubble .time { font-size: 10px; color: #9ca3af; margin-top: 2px; text-align: right; }
+    .empty-state { color: #9ca3af; text-align: center; margin-top: 80px; }
+</style>
+
+<div class="container-fluid contacts-shell">
+    <div class="row g-3 h-100">
+        <div class="col-md-4 h-100">
+            <div class="contact-list">
+                {% if contacts %}
+                    {% for c in contacts %}
+                    <a href="/contacts/{{ c.id }}"
+                       class="contact-row {% if selected and selected.id == c.id %}active{% endif %}">
+                        <span class="avatar" style="background: {{ c.avatar_color }};">
+                            {{ c.initial }}
+                        </span>
+                        <div class="contact-meta">
+                            <div class="d-flex justify-content-between">
+                                <span class="name">{{ c.display_name }}</span>
+                                <span class="time">{{ c.last_time or '' }}</span>
+                            </div>
+                            <div class="preview">{{ c.last_preview or 'Нет сообщений' }}</div>
+                        </div>
+                    </a>
+                    {% endfor %}
+                {% else %}
+                    <div class="empty-state p-4">
+                        Контактов пока нет. Пришлите первое уведомление с устройства.
+                    </div>
+                {% endif %}
             </div>
-          {% endfor %}
-        {% else %}
-          <p class="text-muted">Нет сообщений.</p>
-        {% endif %}
-      {% else %}
-        <p class="text-muted mt-5 text-center">Выберите контакт слева.</p>
-      {% endif %}
+        </div>
+
+        <div class="col-md-8 h-100">
+            <div class="feed" id="feed">
+                {% if selected %}
+                    <div class="feed-header">
+                        <span class="avatar" style="background: {{ selected.avatar_color }};">
+                            {{ selected.initial }}
+                        </span>
+                        <div>
+                            <div class="fw-semibold">{{ selected.display_name }}</div>
+                            <div class="text-muted small">
+                                {% if selected_handles %}
+                                    {{ selected_handles|join(' · ') }}
+                                {% else %}
+                                    нет личностей
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    <div id="messages-container">
+                        {% if messages %}
+                            {% for m in messages %}
+                            <div class="bubble-row">
+                                <span class="source">{{ m.messenger_name }} · {{ m.sender }}</span>
+                                <div class="bubble">
+                                    <div class="text">{{ m.text }}</div>
+                                    <div class="time">{{ m.time }}</div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <div class="empty-state">Нет сообщений.</div>
+                        {% endif %}
+                    </div>
+                {% else %}
+                    <div class="empty-state">
+                        ← Выберите контакт слева, чтобы увидеть переписку.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
     </div>
-  </div>
 </div>
+
+{% if selected %}
+<script>
+(function() {
+    const container = document.getElementById('messages-container');
+    const url = '/contacts/{{ selected.id }}/messages.json';
+    let lastSig = container ? container.dataset.sig || '' : '';
+
+    function render(messages) {
+        if (!messages.length) {
+            container.innerHTML = '<div class="empty-state">Нет сообщений.</div>';
+            return;
+        }
+        const html = messages.map(m =>
+            `<div class="bubble-row">
+                <span class="source">${escapeHtml(m.messenger_name)} · ${escapeHtml(m.sender)}</span>
+                <div class="bubble">
+                    <div class="text">${escapeHtml(m.text)}</div>
+                    <div class="time">${escapeHtml(m.time)}</div>
+                </div>
+            </div>`).join('');
+        container.innerHTML = html;
+    }
+
+    function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+    }
+
+    async function poll() {
+        try {
+            const r = await fetch(url, {credentials: 'same-origin'});
+            if (!r.ok) return;
+            const data = await r.json();
+            const sig = JSON.stringify(data.messages.map(m => m.id || (m.time + m.text)));
+            if (sig !== lastSig) {
+                render(data.messages);
+                lastSig = sig;
+            }
+        } catch (e) { /* network blip — пропускаем */ }
+    }
+
+    setInterval(poll, 5000);
+})();
+</script>
+{% endif %}
 {% endblock %}

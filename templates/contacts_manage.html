@@ -1,80 +1,119 @@
 {% extends 'base.html' %}
 
-{% block title %}Управление связями{% endblock %}
+{% block title %}Связи между контактами{% endblock %}
 
 {% block body %}
-<div class="container mt-3">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <h3>Управление связями</h3>
-    <a href="/contacts" class="btn btn-outline-secondary">К контактам</a>
-  </div>
+<style>
+    .suggestion-card {
+        border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 16px;
+        background: #fff; margin-bottom: 10px;
+    }
+    .suggestion-card .merge-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .suggestion-card .chip {
+        display: inline-flex; align-items: center; gap: 6px;
+        background: #f1f3f5; padding: 4px 10px; border-radius: 999px;
+        font-size: 13px;
+    }
+    .suggestion-card .score { font-size: 12px; color: #6b7280; }
+    .contact-card {
+        border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 16px;
+        background: #fff; margin-bottom: 10px;
+    }
+    .contact-card .header { display: flex; align-items: center; gap: 12px; }
+    .handle-row {
+        display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+        background: #f8f9fb; border-radius: 8px; margin-top: 8px;
+        flex-wrap: wrap;
+    }
+    .handle-row .messenger {
+        font-size: 12px; color: #6b7280; padding: 2px 8px; border-radius: 999px;
+        background: #fff; border: 1px solid #e5e7eb;
+    }
+</style>
 
-  {% if suggestions %}
-    <h5>Подсказки слияния</h5>
-    <p class="text-muted small">Программа предполагает, что это один и тот же человек. Решение — за вами.</p>
-    <ul class="list-group mb-4">
-      {% for s in suggestions %}
-        <li class="list-group-item d-flex justify-content-between align-items-center">
-          <span>
-            <strong>{{ s.source_handle.sender_raw }}</strong>
-            <small class="text-muted">[{{ s.source_handle.messenger_name }}]</small>
-            ≈
-            <strong>{{ s.target_contact.display_name }}</strong>
-            <small class="text-muted">(сходство {{ "%.2f"|format(s.score) }})</small>
-          </span>
-          <span>
-            <form method="post" action="/contacts/suggestions/{{ s.id }}/accept" class="d-inline">
-              <button class="btn btn-sm btn-success">Объединить</button>
-            </form>
-            <form method="post" action="/contacts/suggestions/{{ s.id }}/dismiss" class="d-inline">
-              <button class="btn btn-sm btn-outline-secondary">Скрыть</button>
-            </form>
-          </span>
-        </li>
-      {% endfor %}
-    </ul>
-  {% endif %}
+<div class="container" style="max-width: 900px;">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="mb-0">Связи между контактами</h3>
+        <a href="/contacts" class="btn btn-outline-secondary btn-sm">← К контактам</a>
+    </div>
 
-  <h5>Личности (handles)</h5>
-  <table class="table table-sm">
-    <thead><tr><th>Контакт</th><th>Мессенджер</th><th>Имя</th><th></th></tr></thead>
-    <tbody>
-      {% for h in handles %}
-        <tr>
-          <td>{{ h.contact.display_name }}</td>
-          <td>{{ h.messenger_name }}</td>
-          <td>{{ h.sender_raw }}</td>
-          <td>
-            <form method="post" action="/contacts/handles/{{ h.id }}/move" class="d-inline">
-              <select name="target_contact_id" class="form-select form-select-sm d-inline-block" style="width:auto;">
-                {% for c in all_contacts %}
-                  {% if c.id != h.contact_id %}
-                    <option value="{{ c.id }}">{{ c.display_name }}</option>
-                  {% endif %}
+    <p class="text-muted">
+        Один и тот же человек может быть в нескольких мессенджерах под разными именами.
+        Здесь можно их связать, переименовать контакт или передвинуть «личность» к другому контакту.
+    </p>
+
+    {% if suggestions %}
+    <div class="mb-4">
+        <h5 class="mb-2">Возможно, это один человек</h5>
+        <p class="text-muted small mb-3">
+            Программа нашла похожие имена. Решение — за вами.
+        </p>
+        {% for s in suggestions %}
+        <div class="suggestion-card">
+            <div class="merge-line">
+                <span class="chip">
+                    <strong>{{ s.source_handle.sender_raw }}</strong>
+                    <span class="text-muted">{{ s.source_handle.messenger_name }}</span>
+                </span>
+                <span>≈</span>
+                <span class="chip">
+                    <strong>{{ s.target_contact.display_name }}</strong>
+                </span>
+                <span class="score ms-2">сходство {{ "%.0f"|format(s.score * 100) }}%</span>
+                <span class="ms-auto d-flex gap-2">
+                    <form method="post" action="/contacts/suggestions/{{ s.id }}/accept" class="d-inline">
+                        <button class="btn btn-sm btn-success">Это один человек</button>
+                    </form>
+                    <form method="post" action="/contacts/suggestions/{{ s.id }}/dismiss" class="d-inline">
+                        <button class="btn btn-sm btn-outline-secondary">Разные</button>
+                    </form>
+                </span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <h5 class="mb-2">Контакты</h5>
+    {% if all_contacts %}
+        {% for c in all_contacts %}
+        <div class="contact-card">
+            <div class="header">
+                <span class="avatar" style="background: {{ c.avatar_color }};">{{ c.initial }}</span>
+                <form method="post" action="/contacts/{{ c.id }}/rename" class="flex-fill d-flex gap-2">
+                    <input name="display_name" class="form-control form-control-sm"
+                           value="{{ c.display_name }}">
+                    <button class="btn btn-sm btn-outline-primary">Переименовать</button>
+                </form>
+            </div>
+
+            {% if contact_handles[c.id] %}
+                {% for h in contact_handles[c.id] %}
+                <div class="handle-row">
+                    <span class="messenger">{{ h.messenger_name }}</span>
+                    <span>{{ h.sender_raw }}</span>
+                    {% if all_contacts|length > 1 %}
+                    <form method="post" action="/contacts/handles/{{ h.id }}/move"
+                          class="d-flex gap-2 ms-auto">
+                        <select name="target_contact_id" class="form-select form-select-sm" style="width:auto;">
+                            {% for other in all_contacts %}
+                                {% if other.id != c.id %}
+                                    <option value="{{ other.id }}">→ {{ other.display_name }}</option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-sm btn-outline-secondary">Переместить</button>
+                    </form>
+                    {% endif %}
+                </div>
                 {% endfor %}
-              </select>
-              <button class="btn btn-sm btn-outline-primary">Переместить</button>
-            </form>
-          </td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-
-  <h5 class="mt-4">Переименовать контакт</h5>
-  <table class="table table-sm">
-    <tbody>
-      {% for c in all_contacts %}
-        <tr>
-          <td>
-            <form method="post" action="/contacts/{{ c.id }}/rename" class="d-flex">
-              <input name="display_name" class="form-control form-control-sm" value="{{ c.display_name }}">
-              <button class="btn btn-sm btn-outline-primary ms-2">Сохранить</button>
-            </form>
-          </td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+            {% else %}
+                <div class="text-muted small mt-2">У этого контакта нет личностей.</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    {% else %}
+        <p class="text-muted">Контактов пока нет.</p>
+    {% endif %}
 </div>
 {% endblock %}
