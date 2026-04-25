@@ -1,6 +1,7 @@
 import datetime
 
 import sqlalchemy
+from sqlalchemy import orm
 
 from .db_sessions import SqlAlchemyBase
 
@@ -12,6 +13,9 @@ class Contact(SqlAlchemyBase):
     user_id = sqlalchemy.Column(sqlalchemy.Integer, sqlalchemy.ForeignKey("users.id"), nullable=False)
     display_name = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     created_at = sqlalchemy.Column(sqlalchemy.DateTime, default=datetime.datetime.now, nullable=False)
+
+    handles = orm.relationship("MessengerHandle", back_populates="contact",
+                               foreign_keys="MessengerHandle.contact_id")
 
 
 class MessengerHandle(SqlAlchemyBase):
@@ -29,6 +33,8 @@ class MessengerHandle(SqlAlchemyBase):
         sqlalchemy.UniqueConstraint('user_id', 'messenger_name', 'sender_raw',
                                     name='uq_handle_user_messenger_sender'),
     )
+
+    contact = orm.relationship("Contact", back_populates="handles", foreign_keys=[contact_id])
 
 
 class MergeSuggestion(SqlAlchemyBase):
@@ -48,6 +54,9 @@ class MergeSuggestion(SqlAlchemyBase):
         sqlalchemy.UniqueConstraint('source_handle_id', 'target_contact_id',
                                     name='uq_suggestion_handle_contact'),
     )
+
+    source_handle = orm.relationship("MessengerHandle", foreign_keys=[source_handle_id])
+    target_contact = orm.relationship("Contact", foreign_keys=[target_contact_id])
 
 
 def find_or_create_handle(db, user_id: int, messenger_name: str, sender_raw: str):

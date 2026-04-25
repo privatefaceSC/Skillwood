@@ -168,6 +168,24 @@ def register_routes(app: Flask) -> None:
         )
         return render_template('contacts.html', contacts=contacts, selected=contact, messages=msgs)
 
+    @app.route('/contacts/manage')
+    def contacts_manage():
+        if not session.get('user_id'):
+            return redirect('/login')
+        from data.contacts import Contact, MergeSuggestion, MessengerHandle
+        db = get_db()
+        user_id = session['user_id']
+        all_contacts = (db.query(Contact).filter(Contact.user_id == user_id)
+                        .order_by(Contact.display_name.asc()).all())
+        handles = (db.query(MessengerHandle).filter(MessengerHandle.user_id == user_id)
+                   .order_by(MessengerHandle.messenger_name.asc()).all())
+        suggestions = (db.query(MergeSuggestion)
+                       .filter(MergeSuggestion.user_id == user_id,
+                               MergeSuggestion.status == "pending")
+                       .order_by(MergeSuggestion.score.desc()).all())
+        return render_template('contacts_manage.html',
+                               all_contacts=all_contacts, handles=handles, suggestions=suggestions)
+
     @app.route('/add', methods=['POST'])
     def add_message():
         from data.contacts import record_message
