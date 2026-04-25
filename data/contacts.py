@@ -116,3 +116,39 @@ def record_message(db, user_id: int, messenger_name: str, sender_raw: str, text:
     db.add(msg)
     db.commit()
     return msg
+
+
+def merge_contacts(db, user_id: int, source_id: int, target_id: int) -> None:
+    """Переподвязать handles source-Contact на target и удалить source.
+
+    Помечает dismissed все pending-предложения, ссылающиеся на удаляемый
+    контакт (как target_contact_id) или на любой из его handles
+    (как source_handle_id).
+
+    Бросает ValueError("same") если source_id == target_id.
+    Бросает LookupError если контакты не принадлежат user_id.
+    """
+    if source_id == target_id:
+        raise ValueError("same")
+    src = db.query(Contact).filter(Contact.id == source_id, Contact.user_id == user_id).first()
+    tgt = db.query(Contact).filter(Contact.id == target_id, Contact.user_id == user_id).first()
+    if not src or not tgt:
+        raise LookupError()
+
+    src_handle_ids = [h.id for h in
+                      db.query(MessengerHandle).filter(MessengerHandle.contact_id == source_id).all()]
+
+    db.query(MessengerHandle).filter(MessengerHandle.contact_id == source_id).update(
+        {MessengerHandle.contact_id: target_id}, synchronize_session=False
+    )
+
+    conditions = [MergeSuggestion.target_contact_id == source_id]
+    if src_handle_ids:
+        conditions.append(MergeSuggestion.source_handle_id.in_(src_handle_ids))
+    db.query(MergeSuggestion).filter(
+        MergeSuggestion.status == "pending",
+        sqlalchemy.or_(*conditions),
+    ).update({MergeSuggestion.status: "dismissed"}, synchronize_session=False)
+
+    db.delete(src)
+    db.commit()

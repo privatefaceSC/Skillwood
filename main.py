@@ -186,6 +186,65 @@ def register_routes(app: Flask) -> None:
         return render_template('contacts_manage.html',
                                all_contacts=all_contacts, handles=handles, suggestions=suggestions)
 
+    @app.route('/contacts/<int:contact_id>/rename', methods=['POST'])
+    def contact_rename(contact_id):
+        if not session.get('user_id'):
+            return redirect('/login')
+        from data.contacts import Contact
+        db = get_db()
+        user_id = session['user_id']
+        contact = db.query(Contact).filter(
+            Contact.id == contact_id, Contact.user_id == user_id).first()
+        if not contact:
+            return 'Not Found', 404
+        new_name = request.form.get('display_name', '').strip()
+        if new_name:
+            contact.display_name = new_name
+            db.commit()
+        return redirect('/contacts/manage')
+
+    @app.route('/contacts/merge', methods=['POST'])
+    def contacts_merge():
+        if not session.get('user_id'):
+            return redirect('/login')
+        from data.contacts import merge_contacts
+        db = get_db()
+        try:
+            source_id = int(request.form['source_id'])
+            target_id = int(request.form['target_id'])
+        except (KeyError, ValueError):
+            return 'Bad Request', 400
+        try:
+            merge_contacts(db, session['user_id'], source_id, target_id)
+        except ValueError:
+            return 'Bad Request', 400
+        except LookupError:
+            return 'Not Found', 404
+        return redirect('/contacts/manage')
+
+    @app.route('/contacts/handles/<int:handle_id>/move', methods=['POST'])
+    def handle_move(handle_id):
+        if not session.get('user_id'):
+            return redirect('/login')
+        from data.contacts import Contact, MessengerHandle
+        db = get_db()
+        user_id = session['user_id']
+        handle = db.query(MessengerHandle).filter(
+            MessengerHandle.id == handle_id, MessengerHandle.user_id == user_id).first()
+        if not handle:
+            return 'Not Found', 404
+        try:
+            target_id = int(request.form['target_contact_id'])
+        except (KeyError, ValueError):
+            return 'Bad Request', 400
+        target = db.query(Contact).filter(
+            Contact.id == target_id, Contact.user_id == user_id).first()
+        if not target:
+            return 'Not Found', 404
+        handle.contact_id = target_id
+        db.commit()
+        return redirect('/contacts/manage')
+
     @app.route('/add', methods=['POST'])
     def add_message():
         from data.contacts import record_message
