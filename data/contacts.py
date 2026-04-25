@@ -13,6 +13,7 @@ class Contact(SqlAlchemyBase):
     user_id = sqlalchemy.Column(sqlalchemy.Integer, sqlalchemy.ForeignKey("users.id"), nullable=False)
     display_name = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     created_at = sqlalchemy.Column(sqlalchemy.DateTime, default=datetime.datetime.now, nullable=False)
+    last_read_at = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
 
     handles = orm.relationship("MessengerHandle", back_populates="contact",
                                foreign_keys="MessengerHandle.contact_id")

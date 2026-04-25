@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+
+{% block title %}Диагностика уведомлений{% endblock %}
+
+{% block body %}
+<style>
+    .dump-card { background: #fff; border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+    .dump-meta { color: #6b7280; font-size: 13px; margin-bottom: 8px; }
+    .dump-pre {
+        background: #0b1020; color: #e5e7eb; padding: 12px; border-radius: 8px;
+        white-space: pre-wrap; word-break: break-word;
+        font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+        max-height: 400px; overflow-y: auto;
+    }
+    .pkg { font-weight: 600; color: #1a2230; }
+</style>
+
+<div class="container my-3">
+    <h3>Диагностика уведомлений</h3>
+    <p class="text-muted">
+        Последние 30 дампов <code>Notification.extras</code>, присланных с
+        планшета. Используется для отладки усечения длинных сообщений.
+    </p>
+
+    {% if not dumps %}
+        <div class="alert alert-secondary">
+            Дампов пока нет. Пришлите тестовое сообщение в любой мессенджер,
+            и через несколько секунд оно появится здесь.
+        </div>
+    {% else %}
+        {% for d in dumps %}
+        <div class="dump-card">
+            <div class="dump-meta">
+                <span class="pkg">{{ d.app_name or '?' }}</span>
+                · <code>{{ d.package_name or '?' }}</code>
+                · {{ d.created_at.strftime('%d.%m %H:%M:%S') }}
+                · #{{ d.id }}
+            </div>
+            <pre class="dump-pre">{{ d.dump }}</pre>
+        </div>
+        {% endfor %}
+    {% endif %}
+</div>
+{% endblock %}

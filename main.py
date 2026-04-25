@@ -1,8 +1,9 @@
+import os
 import random
 import string
 from datetime import datetime
 
-from flask import Flask, g, jsonify, redirect, render_template, request, session
+from flask import Flask, abort, g, jsonify, redirect, render_template, request, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from data import db_sessions
@@ -23,15 +24,24 @@ def _avatar_for(contact):
 
 
 def _enrich_with_last_message(db, contacts):
-    """Для каждого контакта подкладывает last_preview / last_time / last_at."""
+    """Для каждого контакта подкладывает last_preview / last_time / last_at / unread_count."""
     from data.contacts import MessengerHandle
+    from sqlalchemy import func
 
     for c in contacts:
         _avatar_for(c)
+        handle_ids = [h.id for h in
+                      db.query(MessengerHandle).filter(MessengerHandle.contact_id == c.id).all()]
+        if not handle_ids:
+            c.last_preview = None
+            c.last_time = None
+            c.last_at = None
+            c.unread_count = 0
+            continue
+
         last = (
             db.query(Messages)
-            .join(MessengerHandle, Messages.handle_id == MessengerHandle.id)
-            .filter(MessengerHandle.contact_id == c.id)
+            .filter(Messages.handle_id.in_(handle_ids))
             .order_by(Messages.created_at.desc().nullslast(), Messages.id.desc())
             .first()
         )
@@ -43,6 +53,11 @@ def _enrich_with_last_message(db, contacts):
             c.last_preview = None
             c.last_time = None
             c.last_at = None
+
+        unread_q = db.query(func.count(Messages.id)).filter(Messages.handle_id.in_(handle_ids))
+        if c.last_read_at is not None:
+            unread_q = unread_q.filter(Messages.created_at > c.last_read_at)
+        c.unread_count = unread_q.scalar() or 0
     contacts.sort(
         key=lambda c: (c.last_at or datetime.min),
         reverse=True,
@@ -195,6 +210,32 @@ def register_routes(app: Flask) -> None:
         return render_template('contacts.html', contacts=contacts,
                                selected=None, selected_handles=[], messages=None)
 
+    @app.route('/contacts.json')
+    def contacts_index_json():
+        if not session.get('user_id'):
+            return jsonify({'error': 'unauthorized'}), 401
+        from data.contacts import Contact
+        db = get_db()
+        user_id = session['user_id']
+        contacts = (
+            db.query(Contact)
+            .filter(Contact.user_id == user_id)
+            .all()
+        )
+        _enrich_with_last_message(db, contacts)
+        return jsonify({'contacts': [
+            {
+                'id': c.id,
+                'display_name': c.display_name,
+                'initial': c.initial,
+                'avatar_color': c.avatar_color,
+                'last_preview': c.last_preview,
+                'last_time': c.last_time,
+                'unread_count': c.unread_count or 0,
+            }
+            for c in contacts
+        ]})
+
     @app.route('/contacts/<int:contact_id>')
     def contact_detail(contact_id):
         if not session.get('user_id'):
@@ -210,6 +251,10 @@ def register_routes(app: Flask) -> None:
         if not contact:
             return 'Not Found', 404
 
+        # Отметить чат как прочитанный — до подсчёта unread в списке.
+        contact.last_read_at = datetime.now()
+        db.commit()
+
         contacts = (
             db.query(Contact)
             .filter(Contact.user_id == user_id)
@@ -224,7 +269,7 @@ def register_routes(app: Flask) -> None:
         msgs = (
             db.query(Messages)
             .filter(Messages.handle_id.in_(handle_ids))
-            .order_by(Messages.created_at.desc().nullslast(), Messages.id.desc())
+            .order_by(Messages.created_at.asc().nullsfirst(), Messages.id.asc())
             .all()
         )
         return render_template('contacts.html', contacts=contacts, selected=contact,
@@ -245,8 +290,12 @@ def register_routes(app: Flask) -> None:
                       db.query(MessengerHandle).filter(MessengerHandle.contact_id == contact.id).all()]
         msgs = (db.query(Messages)
                 .filter(Messages.handle_id.in_(handle_ids))
-                .order_by(Messages.created_at.desc().nullslast(), Messages.id.desc())
+                .order_by(Messages.created_at.asc().nullsfirst(), Messages.id.asc())
                 .all())
+        # Отметить чат как прочитанный при поллинге — иначе непрочитанные
+        # будут «застревать» пока пользователь не перезагрузит страницу.
+        contact.last_read_at = datetime.now()
+        db.commit()
         return jsonify({'messages': [
             {'id': m.id, 'sender': m.sender, 'text': m.text,
              'messenger_name': m.messenger_name, 'time': m.time}
@@ -372,6 +421,51 @@ def register_routes(app: Flask) -> None:
         db.commit()
         return redirect('/contacts/manage')
 
+    def _device_from_bearer(db):
+        """Достаёт Device по Authorization: Bearer ... или возвращает None."""
+        from data.devices import Device, hash_token
+        auth = request.headers.get('Authorization', '')
+        if not auth.startswith('Bearer '):
+            return None
+        token = auth[len('Bearer '):].strip()
+        if not token:
+            return None
+        return db.query(Device).filter(Device.token_hash == hash_token(token)).first()
+
+    @app.route('/api/me', methods=['GET'])
+    def api_me():
+        db = get_db()
+        device = _device_from_bearer(db)
+        if device is None:
+            return jsonify({'error': 'unauthorized'}), 401
+        user = db.query(User).filter(User.id == device.user_id).first()
+        return jsonify({
+            'user': {'id': user.id, 'name': user.name},
+            'device': {'id': device.id, 'name': device.name},
+        })
+
+    @app.route('/download')
+    def download_index():
+        return render_template('download.html')
+
+    @app.route('/download/skillwood.apk')
+    def download_apk():
+        # Tests use monkeypatch.chdir(tmp_path) and put dist/ there;
+        # production runs via `python main.py` from project root.
+        # Try cwd first (so tests still work), fall back to module dir.
+        candidates = [
+            os.path.join(os.getcwd(), 'dist'),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dist'),
+        ]
+        for d in candidates:
+            if os.path.exists(os.path.join(d, 'skillwood.apk')):
+                return send_from_directory(
+                    d, 'skillwood.apk',
+                    as_attachment=True,
+                    mimetype='application/vnd.android.package-archive',
+                )
+        abort(404)
+
     @app.route('/add', methods=['POST'])
     def add_message():
         from data.contacts import record_message
@@ -384,15 +478,132 @@ def register_routes(app: Flask) -> None:
             return 'Bad Request', 400
 
         db = get_db()
-        tablet_ip = request.remote_addr
-        user = db.query(User).filter(User.tablet_ip == tablet_ip).first()
-        if not user:
-            print(f"Неизвестное устройство с IP: {tablet_ip}")
-            return 'OK', 200
+        auth = request.headers.get('Authorization', '')
+        if auth.startswith('Bearer '):
+            device = _device_from_bearer(db)
+            if device is None:
+                return 'Unauthorized', 401
+            device.last_seen_ip = request.remote_addr
+            device.last_seen_at = datetime.now()
+            user_id = device.user_id
+            db.commit()
+        else:
+            tablet_ip = request.remote_addr
+            user = db.query(User).filter(User.tablet_ip == tablet_ip).first()
+            if not user:
+                print(f"Неизвестное устройство с IP: {tablet_ip}")
+                return 'OK', 200
+            user_id = user.id
 
-        record_message(db, user.id, messenger_name, sender, text_value)
-        print(f"из {messenger_name}, Пользователю {user.name}: От {sender} - {text_value}")
+        record_message(db, user_id, messenger_name, sender, text_value)
         return 'OK', 200
+
+    @app.route('/debug/extras', methods=['POST'])
+    def debug_extras_ingest():
+        """Принимает сырой дамп Notification.extras с устройства."""
+        from data.debug_dumps import DebugDump
+        db = get_db()
+        device = _device_from_bearer(db)
+        if device is None:
+            return jsonify({'error': 'unauthorized'}), 401
+        body = request.get_json(silent=True) or {}
+        dump = (body.get('dump') or '').strip()
+        if not dump:
+            return jsonify({'error': 'empty dump'}), 400
+        # Не разрешаем гигантских дампов (битмапы и т.п.) положить базу.
+        if len(dump) > 200_000:
+            dump = dump[:200_000] + '\n... [truncated by server] ...'
+        d = DebugDump(
+            user_id=device.user_id,
+            package_name=(body.get('package_name') or '')[:200] or None,
+            app_name=(body.get('app_name') or '')[:200] or None,
+            dump=dump,
+        )
+        db.add(d)
+        # Чтобы таблица не разрасталась, держим только последние 200 на пользователя.
+        old = (db.query(DebugDump)
+               .filter(DebugDump.user_id == device.user_id)
+               .order_by(DebugDump.id.desc())
+               .offset(200).all())
+        for o in old:
+            db.delete(o)
+        db.commit()
+        return jsonify({'ok': True})
+
+    @app.route('/debug')
+    def debug_index():
+        if not session.get('user_id'):
+            return redirect('/login')
+        from data.debug_dumps import DebugDump
+        db = get_db()
+        dumps = (db.query(DebugDump)
+                 .filter(DebugDump.user_id == session['user_id'])
+                 .order_by(DebugDump.id.desc())
+                 .limit(30).all())
+        return render_template('debug.html', dumps=dumps)
+
+    @app.route('/api/ping')
+    def api_ping():
+        """Лёгкий эндпоинт для проверки доступности сервера (для Android-клиента)."""
+        return jsonify({'ok': True, 'service': 'skillwood'})
+
+    @app.route('/api/connect', methods=['POST'])
+    def api_connect():
+        from data.devices import Device, generate_token, hash_token
+
+        body = request.get_json(silent=True) or {}
+        code = (body.get('code') or '').strip()
+        device_name = (body.get('device_name') or '').strip()
+        if not code or not device_name:
+            return jsonify({'error': 'code and device_name required'}), 400
+
+        db = get_db()
+        user = db.query(User).filter(User.connect_code == code).first()
+        if not user:
+            return jsonify({'error': 'unknown code'}), 404
+
+        token = generate_token()
+        device = Device(user_id=user.id, name=device_name,
+                        token_hash=hash_token(token))
+        db.add(device)
+        db.commit()
+        return jsonify({
+            'token': token,
+            'user': {'id': user.id, 'name': user.name},
+            'device': {'id': device.id, 'name': device.name},
+        })
+
+    @app.route('/admin/test', methods=['GET', 'POST'])
+    def admin_test():
+        """Тестер /add: форма отправки + список последних принятых сообщений."""
+        if not session.get('user_id'):
+            return redirect('/login')
+        from data.contacts import record_message
+
+        db = get_db()
+        user = db.query(User).filter(User.id == session['user_id']).first()
+        flash_message = None
+
+        if request.method == 'POST':
+            sender = (request.form.get('sender') or '').strip()
+            text_value = (request.form.get('text') or '').strip()
+            messenger_name = (request.form.get('messenger_name') or '').strip()
+            if not sender or not text_value or not messenger_name:
+                flash_message = ('error', 'Заполните все три поля.')
+            else:
+                record_message(db, user.id, messenger_name, sender, text_value)
+                flash_message = ('ok', f'Сообщение принято: [{messenger_name}] {sender} → «{text_value}»')
+
+        recent = (db.query(Messages)
+                  .filter(Messages.user_id == user.id)
+                  .order_by(Messages.id.desc())
+                  .limit(20)
+                  .all())
+        return render_template('admin_test.html',
+                               recent=recent,
+                               tablet_ip=user.tablet_ip,
+                               server_remote_addr=request.remote_addr,
+                               flash_message=flash_message)
 
 
 def _generate_code() -> str:

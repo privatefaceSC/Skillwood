@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+
+{% block title %}Тестер /add{% endblock %}
+
+{% block body %}
+<div class="container" style="max-width: 900px;">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="mb-0">Тестер приёма сообщений</h3>
+        <a href="/contacts" class="btn btn-outline-secondary btn-sm">← К контактам</a>
+    </div>
+
+    <p class="text-muted">
+        Здесь можно отправить «искусственное» уведомление на сервер и сразу увидеть,
+        что записалось. Удобно для отладки Android-клиента или MacroDroid.
+    </p>
+
+    {% if flash_message %}
+        {% if flash_message[0] == 'ok' %}
+            <div class="alert alert-success">{{ flash_message[1] }}</div>
+        {% else %}
+            <div class="alert alert-danger">{{ flash_message[1] }}</div>
+        {% endif %}
+    {% endif %}
+
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Отправить тестовое сообщение</h5>
+            <form method="post" class="row g-2">
+                <div class="col-md-3">
+                    <label class="form-label small mb-1">messenger_name</label>
+                    <input name="messenger_name" class="form-control" required value="Telegram">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small mb-1">sender</label>
+                    <input name="sender" class="form-control" required value="Тестовый Контакт">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small mb-1">text</label>
+                    <input name="text" class="form-control" required value="Привет из тестера!">
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button class="btn btn-primary w-100">Отправить</button>
+                </div>
+            </form>
+            <p class="text-muted small mt-2 mb-0">
+                Тестер записывает сообщение от твоего имени напрямую (минуя проверку IP),
+                поэтому его можно использовать с любого устройства, где ты залогинен.
+            </p>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Информация о подключении</h5>
+            <table class="table table-sm mb-0">
+                <tbody>
+                    <tr>
+                        <th class="w-25">IP, привязанный к аккаунту (tablet_ip)</th>
+                        <td><code>{{ tablet_ip or '—' }}</code></td>
+                    </tr>
+                    <tr>
+                        <th>IP браузера, с которого ты сейчас зашёл</th>
+                        <td><code>{{ server_remote_addr }}</code></td>
+                    </tr>
+                </tbody>
+            </table>
+            <p class="text-muted small mt-2 mb-0">
+                MacroDroid / Android-клиент попадёт в сервер с IP, который должен совпадать с tablet_ip,
+                иначе POST /add получит 200 OK, но сообщение не запишется.
+            </p>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body">
+            <h5 class="card-title mb-3">Последние 20 принятых сообщений</h5>
+            {% if recent %}
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>id</th>
+                            <th>created_at</th>
+                            <th>messenger_name</th>
+                            <th>sender</th>
+                            <th>text</th>
+                            <th>handle_id</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for m in recent %}
+                        <tr>
+                            <td>{{ m.id }}</td>
+                            <td><small class="text-muted">{{ m.created_at or '—' }}</small></td>
+                            <td>{{ m.messenger_name }}</td>
+                            <td>{{ m.sender }}</td>
+                            <td>{{ m.text }}</td>
+                            <td>{{ m.handle_id or '—' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+                <p class="text-muted mb-0">Пока нет ни одного сообщения.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0 mt-4">
+        <div class="card-body">
+            <h5 class="card-title">Тестирование снаружи (как делает MacroDroid)</h5>
+            <p>Если хочешь проверить именно сетевой путь — отправь POST с другого устройства командой curl или из MacroDroid:</p>
+            <pre class="bg-light p-3 rounded small mb-0"><code>curl -X POST http://&lt;адрес-сервера&gt;:5000/add \
+     -d "sender=Иван&amp;text=привет&amp;messenger_name=Telegram"</code></pre>
+            <p class="text-muted small mt-2 mb-0">
+                Этот вариант проходит через привязку по IP, поэтому отправлять надо с того устройства,
+                IP которого записан в <code>tablet_ip</code> выше.
+                Также есть <a href="/api/ping"><code>GET /api/ping</code></a> — простая проверка, что сервер жив.
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}
