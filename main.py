@@ -129,27 +129,23 @@ def register_routes(app: Flask) -> None:
 
     @app.route('/add', methods=['POST'])
     def add_message():
-        db = get_db()
+        from data.contacts import record_message
+
         sender = request.form.get('sender')
         text_value = request.form.get('text')
         messenger_name = request.form.get('messenger_name')
-        tablet_ip = request.remote_addr
 
+        if not sender or not text_value or not messenger_name:
+            return 'Bad Request', 400
+
+        db = get_db()
+        tablet_ip = request.remote_addr
         user = db.query(User).filter(User.tablet_ip == tablet_ip).first()
         if not user:
             print(f"Неизвестное устройство с IP: {tablet_ip}")
             return 'OK', 200
 
-        time_now = datetime.now().strftime('%H:%M')
-        new_message = Messages(
-            sender=sender,
-            text=text_value,
-            messenger_name=messenger_name,
-            time=time_now,
-            user_id=user.id,
-        )
-        db.add(new_message)
-        db.commit()
+        record_message(db, user.id, messenger_name, sender, text_value)
         print(f"из {messenger_name}, Пользователю {user.name}: От {sender} - {text_value}")
         return 'OK', 200
 
