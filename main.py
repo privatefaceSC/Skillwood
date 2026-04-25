@@ -245,6 +245,41 @@ def register_routes(app: Flask) -> None:
         db.commit()
         return redirect('/contacts/manage')
 
+    @app.route('/contacts/suggestions/<int:sug_id>/dismiss', methods=['POST'])
+    def suggestion_dismiss(sug_id):
+        if not session.get('user_id'):
+            return redirect('/login')
+        from data.contacts import MergeSuggestion
+        db = get_db()
+        sug = db.query(MergeSuggestion).filter(
+            MergeSuggestion.id == sug_id,
+            MergeSuggestion.user_id == session['user_id']).first()
+        if not sug:
+            return 'Not Found', 404
+        sug.status = "dismissed"
+        db.commit()
+        return redirect('/contacts/manage')
+
+    @app.route('/contacts/suggestions/<int:sug_id>/accept', methods=['POST'])
+    def suggestion_accept(sug_id):
+        if not session.get('user_id'):
+            return redirect('/login')
+        from data.contacts import MergeSuggestion, MessengerHandle, merge_contacts
+        db = get_db()
+        user_id = session['user_id']
+        sug = db.query(MergeSuggestion).filter(
+            MergeSuggestion.id == sug_id, MergeSuggestion.user_id == user_id).first()
+        if not sug:
+            return 'Not Found', 404
+        source_handle = db.get(MessengerHandle, sug.source_handle_id)
+        try:
+            merge_contacts(db, user_id, source_handle.contact_id, sug.target_contact_id)
+        except (ValueError, LookupError):
+            return 'Conflict', 409
+        sug.status = "accepted"
+        db.commit()
+        return redirect('/contacts/manage')
+
     @app.route('/add', methods=['POST'])
     def add_message():
         from data.contacts import record_message
