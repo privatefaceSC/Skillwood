@@ -26,7 +26,13 @@
     <string name="stat_errors">Ошибок подряд: %1$d</string>
     <string name="stat_queue">В очереди: %1$d</string>
     <string name="action_test">Отправить тест</string>
+    <string name="action_app_filter">Выбрать приложения</string>
     <string name="action_disconnect">Отключить устройство</string>
+
+    <!-- Экран выбора приложений -->
+    <string name="app_filter_title">Выбрать приложения</string>
+    <string name="app_filter_search_hint">Поиск по названию</string>
+    <string name="app_filter_empty">Ничего не найдено</string>
 
     <!-- Сообщения об ошибках -->
     <string name="error_network">Нет связи с сервером.</string>

@@ -35,6 +35,19 @@ class SettingsRepository(context: Context) {
 
     fun isConfigured(): Boolean = !deviceToken.isNullOrBlank()
 
+    /** Whitelist пакетов, от которых пересылаем уведомления. Пустой по умолчанию. */
+    var allowedPackages: Set<String>
+        get() = prefs.getStringSet(KEY_ALLOWED_PACKAGES, emptySet())!!.toSet()
+        set(value) { prefs.edit().putStringSet(KEY_ALLOWED_PACKAGES, value).apply() }
+
+    fun setPackageAllowed(packageName: String, allowed: Boolean) {
+        val cur = allowedPackages.toMutableSet()
+        if (allowed) cur.add(packageName) else cur.remove(packageName)
+        allowedPackages = cur
+    }
+
+    fun isPackageAllowed(packageName: String): Boolean = packageName in allowedPackages
+
     fun recordSuccess() {
         prefs.edit()
             .putLong(KEY_SENT, sent + 1)
@@ -60,5 +73,6 @@ class SettingsRepository(context: Context) {
         private const val KEY_SENT = "stats_sent"
         private const val KEY_LAST_SENT = "stats_last_sent_at"
         private const val KEY_ERRORS = "stats_errors_streak"
+        private const val KEY_ALLOWED_PACKAGES = "allowed_packages"
     }
 }

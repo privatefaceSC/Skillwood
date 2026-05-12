@@ -2,6 +2,7 @@ import datetime
 
 import sqlalchemy
 
+from .crypto import EncryptedText
 from .db_sessions import SqlAlchemyBase
 
 
@@ -24,7 +25,7 @@ class Messages(SqlAlchemyBase):
 
     id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True, autoincrement=True)
     sender = sqlalchemy.Column(sqlalchemy.String)
-    text = sqlalchemy.Column(sqlalchemy.String)
+    text = sqlalchemy.Column(EncryptedText())
     messenger_name = sqlalchemy.Column(sqlalchemy.String)
     time = sqlalchemy.Column(sqlalchemy.String)
     user_id = sqlalchemy.Column(sqlalchemy.Integer, sqlalchemy.ForeignKey("users.id"), nullable=True)

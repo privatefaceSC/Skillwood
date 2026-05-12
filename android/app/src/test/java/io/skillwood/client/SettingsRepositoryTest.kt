@@ -69,4 +69,52 @@ class SettingsRepositoryTest {
         assertEquals(0, repo.sent)
         assertEquals(0, repo.errorsStreak)
     }
+
+    @Test
+    fun allowed_packages_default_is_empty() {
+        assertTrue(repo.allowedPackages.isEmpty())
+        assertFalse(repo.isPackageAllowed("org.telegram.messenger"))
+    }
+
+    @Test
+    fun set_package_allowed_adds_and_persists() {
+        repo.setPackageAllowed("org.telegram.messenger", true)
+        assertTrue(repo.isPackageAllowed("org.telegram.messenger"))
+        assertEquals(setOf("org.telegram.messenger"), repo.allowedPackages)
+    }
+
+    @Test
+    fun set_package_allowed_false_removes_from_set() {
+        repo.setPackageAllowed("org.telegram.messenger", true)
+        repo.setPackageAllowed("ru.oneme.app", true)
+        repo.setPackageAllowed("org.telegram.messenger", false)
+        assertFalse(repo.isPackageAllowed("org.telegram.messenger"))
+        assertTrue(repo.isPackageAllowed("ru.oneme.app"))
+        assertEquals(setOf("ru.oneme.app"), repo.allowedPackages)
+    }
+
+    @Test
+    fun set_package_allowed_is_idempotent() {
+        repo.setPackageAllowed("org.telegram.messenger", true)
+        repo.setPackageAllowed("org.telegram.messenger", true)
+        assertEquals(setOf("org.telegram.messenger"), repo.allowedPackages)
+    }
+
+    @Test
+    fun clear_resets_allowed_packages() {
+        repo.setPackageAllowed("org.telegram.messenger", true)
+        repo.setPackageAllowed("ru.oneme.app", true)
+        repo.clear()
+        assertTrue(repo.allowedPackages.isEmpty())
+    }
+
+    @Test
+    fun allowed_packages_returns_immutable_snapshot() {
+        repo.setPackageAllowed("org.telegram.messenger", true)
+        val snapshot = repo.allowedPackages
+        // Если бы геттер вернул внутренний инстанс SharedPreferences-сета,
+        // последующее присваивание могло бы вытащить новые данные через ту же ссылку.
+        repo.setPackageAllowed("ru.oneme.app", true)
+        assertEquals(setOf("org.telegram.messenger"), snapshot)
+    }
 }

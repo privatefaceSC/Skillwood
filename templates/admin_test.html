@@ -11,7 +11,7 @@
 
     <p class="text-muted">
         Здесь можно отправить «искусственное» уведомление на сервер и сразу увидеть,
-        что записалось. Удобно для отладки Android-клиента или MacroDroid.
+        что записалось. Удобно для отладки Android-клиента и проверки контакт-центричной модели.
     </p>
 
     {% if flash_message %}
@@ -65,8 +65,9 @@
                 </tbody>
             </table>
             <p class="text-muted small mt-2 mb-0">
-                MacroDroid / Android-клиент попадёт в сервер с IP, который должен совпадать с tablet_ip,
-                иначе POST /add получит 200 OK, но сообщение не запишется.
+                Основной путь доставки уведомлений — Android-клиент с Bearer-токеном
+                (его IP не должен совпадать с tablet_ip). Поле tablet_ip осталось как
+                fallback-режим для устройств без Bearer-токена.
             </p>
         </div>
     </div>
@@ -109,13 +110,14 @@
 
     <div class="card shadow-sm border-0 mt-4">
         <div class="card-body">
-            <h5 class="card-title">Тестирование снаружи (как делает MacroDroid)</h5>
-            <p>Если хочешь проверить именно сетевой путь — отправь POST с другого устройства командой curl или из MacroDroid:</p>
+            <h5 class="card-title">Тестирование сетевого пути</h5>
+            <p>Если хочешь проверить, что сервер реально принимает <code>POST /add</code> снаружи, отправь curl-запрос с Bearer-токеном устройства:</p>
             <pre class="bg-light p-3 rounded small mb-0"><code>curl -X POST http://&lt;адрес-сервера&gt;:5000/add \
+     -H "Authorization: Bearer &lt;токен-устройства&gt;" \
      -d "sender=Иван&amp;text=привет&amp;messenger_name=Telegram"</code></pre>
             <p class="text-muted small mt-2 mb-0">
-                Этот вариант проходит через привязку по IP, поэтому отправлять надо с того устройства,
-                IP которого записан в <code>tablet_ip</code> выше.
+                Без Bearer-заголовка <code>/add</code> работает в IP-fallback режиме:
+                сообщение запишется только если IP отправителя совпадает с <code>tablet_ip</code> выше.
                 Также есть <a href="/api/ping"><code>GET /api/ping</code></a> — простая проверка, что сервер жив.
             </p>
         </div>

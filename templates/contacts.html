@@ -26,6 +26,47 @@
         font-size: 12px; font-weight: 600; margin-top: 2px;
     }
     .contact-meta { flex: 1; min-width: 0; }
+    .contact-row-wrap { position: relative; }
+    /* Освобождаем место для kebab-кнопки справа, чтобы превью не уезжало под неё. */
+    .contact-row-wrap .contact-row { padding-right: 44px; }
+    .contact-kebab {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 5;
+        background: transparent; border: 0; color: #4b5563;
+        font-size: 22px; font-weight: 700; line-height: 1;
+        padding: 6px 10px;
+        cursor: pointer; border-radius: 6px;
+        transition: background 0.1s, color 0.1s;
+    }
+    .contact-kebab:hover { background: #eef0f3; color: #1a2230; }
+    .contact-kebab.open { background: #e7f1ff; color: #1a2230; }
+    /* Кнопка «назад к списку» в шапке чата на узких экранах. */
+    .feed-back-btn {
+        background: transparent; border: 0; font-size: 22px;
+        line-height: 1; padding: 4px 10px; color: #1a2230;
+        cursor: pointer; border-radius: 6px; text-decoration: none;
+    }
+    .feed-back-btn:hover { background: #f1f3f5; color: #1a2230; }
+    .popover-menu {
+        position: absolute; z-index: 100; background: #fff;
+        border: 1px solid #e5e7eb; border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+        min-width: 160px; padding: 4px 0;
+    }
+    .popover-menu button {
+        width: 100%; background: transparent; border: 0;
+        text-align: left; padding: 8px 14px; cursor: pointer;
+        font-size: 14px; color: #1a2230;
+    }
+    .popover-menu button:hover { background: #f7f9fc; }
+    .popover-menu button.danger { color: #ef4444; }
+    .popover-menu .rename-input {
+        width: calc(100% - 28px); margin: 4px 14px; padding: 6px 8px;
+        border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px;
+    }
     .feed { height: 100%; overflow-y: auto; background: #fff; border-radius: 12px; padding: 16px 20px; }
     .feed-header {
         display: flex; align-items: center; gap: 12px;
@@ -47,33 +88,71 @@
         line-height: 1.3;
     }
     .empty-state { color: #9ca3af; text-align: center; margin-top: 80px; }
+
+    /* Тёмная тема */
+    [data-bs-theme="dark"] .contact-list { background: #1a1d24; }
+    [data-bs-theme="dark"] .contact-row { border-bottom: 1px solid #2a2f3a; }
+    [data-bs-theme="dark"] .contact-row:hover { background: #232831; }
+    [data-bs-theme="dark"] .contact-row.active { background: #1e3a5f; }
+    [data-bs-theme="dark"] .contact-row .name { color: #e5e7eb; }
+    [data-bs-theme="dark"] .contact-row .preview { color: #9ca3af; }
+    [data-bs-theme="dark"] .contact-row .time { color: #6b7280; }
+    [data-bs-theme="dark"] .contact-kebab { color: #6b7280; }
+    [data-bs-theme="dark"] .contact-kebab:hover { background: #2a2f3a; color: #e5e7eb; }
+    [data-bs-theme="dark"] .contact-kebab.open { background: #1e3a5f; color: #e5e7eb; }
+    [data-bs-theme="dark"] .feed-back-btn { color: #e5e7eb; }
+    [data-bs-theme="dark"] .feed-back-btn:hover { background: #2a2f3a; color: #e5e7eb; }
+    [data-bs-theme="dark"] .popover-menu {
+        background: #1a1d24; border-color: #2a2f3a;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    [data-bs-theme="dark"] .popover-menu button { color: #e5e7eb; }
+    [data-bs-theme="dark"] .popover-menu button:hover { background: #232831; }
+    [data-bs-theme="dark"] .popover-menu .rename-input {
+        background: #232831; border-color: #2a2f3a; color: #e5e7eb;
+    }
+    [data-bs-theme="dark"] .feed { background: #1a1d24; }
+    [data-bs-theme="dark"] .feed-header { border-bottom-color: #2a2f3a; }
+    [data-bs-theme="dark"] .bubble { background: #2a2f3a; }
+    [data-bs-theme="dark"] .bubble .text { color: #e5e7eb; }
+    [data-bs-theme="dark"] .bubble .time { color: #6b7280; }
+    [data-bs-theme="dark"] .bubble-row .source { color: #9ca3af; }
+    [data-bs-theme="dark"] .bubble .truncated-note {
+        color: #fcd34d; background: rgba(245, 158, 11, 0.12);
+    }
+    [data-bs-theme="dark"] .empty-state { color: #6b7280; }
 </style>
 
 <div class="container-fluid contacts-shell">
     <div class="row g-3 h-100">
-        <div class="col-md-4 h-100">
+        <div class="col-md-4 h-100 {% if selected %}d-none d-md-block{% endif %}">
             <div class="contact-list" id="contact-list"
                  data-active-id="{{ selected.id if selected else '' }}">
                 {% if contacts %}
                     {% for c in contacts %}
-                    <a href="/contacts/{{ c.id }}"
-                       class="contact-row {% if selected and selected.id == c.id %}active{% endif %}">
-                        <span class="avatar" style="background: {{ c.avatar_color }};">
-                            {{ c.initial }}
-                        </span>
-                        <div class="contact-meta">
-                            <div class="d-flex justify-content-between">
-                                <span class="name">{{ c.display_name }}</span>
-                                <span class="time">{{ c.last_time or '' }}</span>
+                    <div class="contact-row-wrap" data-contact-id="{{ c.id }}">
+                        <a href="/contacts/{{ c.id }}"
+                           class="contact-row {% if selected and selected.id == c.id %}active{% endif %}">
+                            <span class="avatar" style="background: {{ c.avatar_color }};">
+                                {{ c.initial }}
+                            </span>
+                            <div class="contact-meta">
+                                <div class="d-flex justify-content-between">
+                                    <span class="name">{{ c.display_name }}</span>
+                                    <span class="time">{{ c.last_time or '' }}</span>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div class="preview">{{ c.last_preview or 'Нет сообщений' }}</div>
+                                    {% if c.unread_count and c.unread_count > 0 %}
+                                        <span class="badge-unread">{{ c.unread_count }}</span>
+                                    {% endif %}
+                                </div>
                             </div>
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div class="preview">{{ c.last_preview or 'Нет сообщений' }}</div>
-                                {% if c.unread_count and c.unread_count > 0 %}
-                                    <span class="badge-unread">{{ c.unread_count }}</span>
-                                {% endif %}
-                            </div>
-                        </div>
-                    </a>
+                        </a>
+                        <button type="button" class="contact-kebab"
+                                aria-label="Меню"
+                                onclick="openContactMenu(this, {{ c.id }});">⋮</button>
+                    </div>
                     {% endfor %}
                 {% else %}
                     <div class="empty-state p-4">
@@ -83,10 +162,11 @@
             </div>
         </div>
 
-        <div class="col-md-8 h-100">
+        <div class="col-md-8 h-100 {% if not selected %}d-none d-md-block{% endif %}">
             <div class="feed" id="feed">
                 {% if selected %}
                     <div class="feed-header">
+                        <a href="/contacts" class="feed-back-btn d-md-none" aria-label="Назад">←</a>
                         <span class="avatar" style="background: {{ selected.avatar_color }};">
                             {{ selected.initial }}
                         </span>
@@ -104,8 +184,8 @@
                     <div id="messages-container">
                         {% if messages %}
                             {% for m in messages %}
-                            <div class="bubble-row">
-                                <span class="source">{{ m.messenger_name }} · {{ m.sender }}</span>
+                            <div class="bubble-row" data-message-id="{{ m.id }}">
+                                <span class="source">{{ m.messenger_name }} · {{ m.display_author or m.sender }}</span>
                                 <div class="bubble">
                                     <div class="text">{{ m.text }}</div>
                                     {% if m.text and m.text|length == 1024 %}
@@ -159,32 +239,39 @@
             const isActive = String(c.id) === String(activeId);
             const badge = (c.unread_count && c.unread_count > 0)
                 ? `<span class="badge-unread">${c.unread_count}</span>` : '';
-            return `<a href="/contacts/${c.id}"
-                       class="contact-row${isActive ? ' active' : ''}">
-                <span class="avatar" style="background: ${escapeHtml(c.avatar_color)};">
-                    ${escapeHtml(c.initial)}
-                </span>
-                <div class="contact-meta">
-                    <div class="d-flex justify-content-between">
-                        <span class="name">${escapeHtml(c.display_name)}</span>
-                        <span class="time">${escapeHtml(c.last_time || '')}</span>
+            return `<div class="contact-row-wrap" data-contact-id="${c.id}">
+                <a href="/contacts/${c.id}"
+                   class="contact-row${isActive ? ' active' : ''}">
+                    <span class="avatar" style="background: ${escapeHtml(c.avatar_color)};">
+                        ${escapeHtml(c.initial)}
+                    </span>
+                    <div class="contact-meta">
+                        <div class="d-flex justify-content-between">
+                            <span class="name">${escapeHtml(c.display_name)}</span>
+                            <span class="time">${escapeHtml(c.last_time || '')}</span>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="preview">${escapeHtml(c.last_preview || 'Нет сообщений')}</div>
+                            ${badge}
+                        </div>
                     </div>
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div class="preview">${escapeHtml(c.last_preview || 'Нет сообщений')}</div>
-                        ${badge}
-                    </div>
-                </div>
-            </a>`;
+                </a>
+                <button type="button" class="contact-kebab" aria-label="Меню"
+                        onclick="openContactMenu(this, ${c.id})">⋮</button>
+            </div>`;
         }).join('');
     }
 
     async function poll() {
+        // Если открыто kebab-меню или идёт переименование — не перерисовываем,
+        // иначе пользовательское взаимодействие сорвётся.
+        if (window.__skillwoodMenuOpen) return;
         try {
             const r = await fetch('/contacts.json', {credentials: 'same-origin'});
             if (!r.ok) return;
             const data = await r.json();
             const sig = JSON.stringify(data.contacts.map(
-                c => [c.id, c.last_time, c.last_preview, c.unread_count]));
+                c => [c.id, c.display_name, c.last_time, c.last_preview, c.unread_count]));
             if (sig !== lastSig) {
                 render(data.contacts);
                 lastSig = sig;
@@ -196,9 +283,212 @@
     poll();
     setInterval(poll, 5000);
 })();
+
+// Kebab-меню для контактов: переименовать / удалить.
+(function() {
+    let openMenu = null;
+
+    function closeOpenMenu() {
+        if (openMenu) {
+            openMenu.remove();
+            openMenu = null;
+        }
+        document.querySelectorAll('.contact-kebab.open').forEach(
+            b => b.classList.remove('open'));
+        window.__skillwoodMenuOpen = false;
+    }
+
+    window.openContactMenu = function(button, contactId) {
+        if (openMenu && openMenu.dataset.contactId === String(contactId)) {
+            closeOpenMenu();
+            return;
+        }
+        closeOpenMenu();
+        button.classList.add('open');
+        window.__skillwoodMenuOpen = true;
+        const wrap = button.closest('.contact-row-wrap');
+        const menu = document.createElement('div');
+        menu.className = 'popover-menu';
+        menu.dataset.contactId = String(contactId);
+        menu.style.top = (button.offsetTop + button.offsetHeight) + 'px';
+        menu.style.right = '6px';
+        menu.innerHTML =
+            '<button class="rename-btn" type="button">Переименовать</button>' +
+            '<button class="delete-btn danger" type="button">Удалить</button>';
+        wrap.appendChild(menu);
+        openMenu = menu;
+
+        menu.querySelector('.rename-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            startRename(menu, contactId);
+        });
+        menu.querySelector('.delete-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteContact(contactId);
+        });
+    };
+
+    function startRename(menu, contactId) {
+        const nameEl = menu.closest('.contact-row-wrap').querySelector('.contact-row .name');
+        const currentName = nameEl.textContent.trim();
+        menu.innerHTML = '';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'rename-input';
+        input.value = currentName;
+        menu.appendChild(input);
+        input.focus();
+        input.select();
+        let submitted = false;
+        const submit = async () => {
+            if (submitted) return;
+            submitted = true;
+            const newName = input.value.trim();
+            if (!newName || newName === currentName) {
+                closeOpenMenu();
+                return;
+            }
+            const fd = new FormData();
+            fd.append('display_name', newName);
+            try {
+                const r = await fetch('/contacts/' + contactId + '/rename', {
+                    method: 'POST',
+                    body: fd,
+                    headers: {'X-Requested-With': 'XMLHttpRequest'},
+                    credentials: 'same-origin',
+                });
+                if (r.ok) nameEl.textContent = newName;
+            } catch (e) {}
+            closeOpenMenu();
+        };
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); submit(); }
+            if (e.key === 'Escape') { e.preventDefault(); closeOpenMenu(); }
+        });
+        input.addEventListener('blur', submit);
+    }
+
+    async function deleteContact(contactId) {
+        if (!confirm('Точно удалить чат и все его сообщения? Действие необратимо.')) {
+            closeOpenMenu();
+            return;
+        }
+        try {
+            const r = await fetch('/contacts/' + contactId + '/delete', {
+                method: 'POST', credentials: 'same-origin',
+            });
+            if (r.ok) {
+                const wrap = document.querySelector(
+                    '.contact-row-wrap[data-contact-id="' + contactId + '"]');
+                if (wrap) wrap.remove();
+                const activeId = document.getElementById('contact-list').dataset.activeId;
+                if (String(contactId) === String(activeId)) {
+                    window.location = '/contacts';
+                }
+            }
+        } catch (e) {}
+        closeOpenMenu();
+    }
+
+    document.addEventListener('click', (e) => {
+        if (!openMenu) return;
+        if (openMenu.contains(e.target)) return;
+        if (e.target.classList && e.target.classList.contains('contact-kebab')) return;
+        closeOpenMenu();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && openMenu) closeOpenMenu();
+    });
+})();
 </script>
 
 {% if selected %}
+<script>
+// Контекстное меню для сообщений (правый клик): копировать / удалить.
+(function() {
+    let openMenu = null;
+
+    function closeMenu() {
+        if (openMenu) { openMenu.remove(); openMenu = null; }
+    }
+
+    function showMessageMenu(x, y, messageId, text) {
+        closeMenu();
+        const menu = document.createElement('div');
+        menu.className = 'popover-menu';
+        menu.style.position = 'fixed';
+        menu.style.left = x + 'px';
+        menu.style.top = y + 'px';
+        menu.innerHTML =
+            '<button class="copy-btn" type="button">Копировать</button>' +
+            '<button class="delete-msg-btn danger" type="button">Удалить сообщение</button>';
+        document.body.appendChild(menu);
+        openMenu = menu;
+
+        // Если меню вылазит за правый/нижний край — двигаем влево/вверх.
+        const rect = menu.getBoundingClientRect();
+        if (rect.right > window.innerWidth) {
+            menu.style.left = (window.innerWidth - rect.width - 8) + 'px';
+        }
+        if (rect.bottom > window.innerHeight) {
+            menu.style.top = (window.innerHeight - rect.height - 8) + 'px';
+        }
+
+        menu.querySelector('.copy-btn').addEventListener('click', async (e) => {
+            e.stopPropagation();
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(text);
+                } else {
+                    // Fallback для старых браузеров / http без secure context.
+                    const ta = document.createElement('textarea');
+                    ta.value = text;
+                    ta.style.position = 'fixed';
+                    ta.style.opacity = '0';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    ta.remove();
+                }
+            } catch (err) {}
+            closeMenu();
+        });
+        menu.querySelector('.delete-msg-btn').addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (!confirm('Удалить это сообщение?')) { closeMenu(); return; }
+            try {
+                const r = await fetch('/messages/' + messageId + '/delete', {
+                    method: 'POST', credentials: 'same-origin',
+                });
+                if (r.ok) {
+                    const row = document.querySelector(
+                        '.bubble-row[data-message-id="' + messageId + '"]');
+                    if (row) row.remove();
+                }
+            } catch (err) {}
+            closeMenu();
+        });
+    }
+
+    document.addEventListener('contextmenu', (e) => {
+        const row = e.target.closest('.bubble-row');
+        if (!row) return;
+        const messageId = row.dataset.messageId;
+        if (!messageId) return;
+        const textEl = row.querySelector('.bubble .text');
+        const text = textEl ? textEl.textContent : '';
+        e.preventDefault();
+        showMessageMenu(e.clientX, e.clientY, messageId, text);
+    });
+    document.addEventListener('click', (e) => {
+        if (openMenu && !openMenu.contains(e.target)) closeMenu();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && openMenu) closeMenu();
+    });
+    document.addEventListener('scroll', closeMenu, true);
+})();
+</script>
 <script>
 (function() {
     const feed = document.getElementById('feed');
@@ -227,8 +517,8 @@
                     Откройте ${escapeHtml(m.messenger_name)}, чтобы прочесть целиком.
                   </div>`
                 : '';
-            return `<div class="bubble-row">
-                <span class="source">${escapeHtml(m.messenger_name)} · ${escapeHtml(m.sender)}</span>
+            return `<div class="bubble-row" data-message-id="${m.id}">
+                <span class="source">${escapeHtml(m.messenger_name)} · ${escapeHtml(m.display_author || m.sender)}</span>
                 <div class="bubble">
                     <div class="text">${escapeHtml(m.text)}</div>
                     ${truncated}

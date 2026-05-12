@@ -241,6 +241,7 @@ def register_routes(app: Flask) -> None:
         if not session.get('user_id'):
             return redirect('/login')
         from data.contacts import Contact, MessengerHandle
+        from data.matching import display_author
         db = get_db()
         user_id = session['user_id']
         contact = (
@@ -272,6 +273,8 @@ def register_routes(app: Flask) -> None:
             .order_by(Messages.created_at.asc().nullsfirst(), Messages.id.asc())
             .all()
         )
+        for m in msgs:
+            m.display_author = display_author(m.sender, contact.display_name)
         return render_template('contacts.html', contacts=contacts, selected=contact,
                                selected_handles=selected_handles, messages=msgs)
 
@@ -280,6 +283,7 @@ def register_routes(app: Flask) -> None:
         if not session.get('user_id'):
             return jsonify({'error': 'unauthorized'}), 401
         from data.contacts import Contact, MessengerHandle
+        from data.matching import display_author
         db = get_db()
         user_id = session['user_id']
         contact = (db.query(Contact)
@@ -298,7 +302,8 @@ def register_routes(app: Flask) -> None:
         db.commit()
         return jsonify({'messages': [
             {'id': m.id, 'sender': m.sender, 'text': m.text,
-             'messenger_name': m.messenger_name, 'time': m.time}
+             'messenger_name': m.messenger_name, 'time': m.time,
+             'display_author': display_author(m.sender, contact.display_name)}
             for m in msgs
         ]})
 
@@ -342,7 +347,59 @@ def register_routes(app: Flask) -> None:
         if new_name:
             contact.display_name = new_name
             db.commit()
+        # Поведение зависит от того, откуда вызвали — со страницы списка контактов
+        # хотим JSON и остаться на месте; с /contacts/manage — редирект.
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'ok': True, 'display_name': contact.display_name})
         return redirect('/contacts/manage')
+
+    @app.route('/contacts/<int:contact_id>/delete', methods=['POST'])
+    def contact_delete(contact_id):
+        if not session.get('user_id'):
+            return jsonify({'error': 'unauthorized'}), 401
+        from data.contacts import Contact, MergeSuggestion, MessengerHandle
+        from sqlalchemy import or_
+        db = get_db()
+        user_id = session['user_id']
+        contact = db.query(Contact).filter(
+            Contact.id == contact_id, Contact.user_id == user_id).first()
+        if not contact:
+            return jsonify({'error': 'not_found'}), 404
+        handle_ids = [h.id for h in db.query(MessengerHandle)
+                      .filter(MessengerHandle.contact_id == contact.id).all()]
+        # Удаляем все сообщения этого контакта.
+        if handle_ids:
+            db.query(Messages).filter(Messages.handle_id.in_(handle_ids)).delete(
+                synchronize_session=False)
+        # Чистим связанные MergeSuggestion: те, что указывают на контакт как target,
+        # и те, что указывают на любой его handle как source.
+        conditions = [MergeSuggestion.target_contact_id == contact.id]
+        if handle_ids:
+            conditions.append(MergeSuggestion.source_handle_id.in_(handle_ids))
+        db.query(MergeSuggestion).filter(or_(*conditions)).delete(
+            synchronize_session=False)
+        # Удаляем handles контакта.
+        db.query(MessengerHandle).filter(
+            MessengerHandle.contact_id == contact.id).delete(
+            synchronize_session=False)
+        # И сам контакт.
+        db.delete(contact)
+        db.commit()
+        return jsonify({'ok': True})
+
+    @app.route('/messages/<int:message_id>/delete', methods=['POST'])
+    def message_delete(message_id):
+        if not session.get('user_id'):
+            return jsonify({'error': 'unauthorized'}), 401
+        db = get_db()
+        user_id = session['user_id']
+        msg = db.query(Messages).filter(
+            Messages.id == message_id, Messages.user_id == user_id).first()
+        if not msg:
+            return jsonify({'error': 'not_found'}), 404
+        db.delete(msg)
+        db.commit()
+        return jsonify({'ok': True})
 
     @app.route('/contacts/merge', methods=['POST'])
     def contacts_merge():

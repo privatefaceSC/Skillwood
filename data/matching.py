@@ -16,6 +16,40 @@ def normalize(s: str) -> str:
     )
 
 
+def split_group_sender(sender_raw: str):
+    """Разобрать sender_raw как 'X: Y' / 'X:Y' → (prefix, member).
+
+    Сплит по первому двоеточию (partition), чтобы 'Время: 10:30' дало
+    ('Время', '10:30'). Возвращает None, если двоеточия нет либо после strip()
+    префикс или участник пустые.
+    """
+    if not sender_raw or ":" not in sender_raw:
+        return None
+    prefix, _, member = sender_raw.partition(":")
+    prefix, member = prefix.strip(), member.strip()
+    if not prefix or not member:
+        return None
+    return prefix, member
+
+
+def display_author(sender_raw: str, contact_display_name: str) -> str:
+    """Имя автора без префикса группы.
+
+    Если sender_raw начинается с 'contact_display_name:' (точное совпадение
+    префикса до двоеточия после strip()) — возвращаем то, что после двоеточия.
+    Иначе — sender_raw как есть.
+    """
+    if not sender_raw or not contact_display_name:
+        return sender_raw
+    parsed = split_group_sender(sender_raw)
+    if parsed is None:
+        return sender_raw
+    prefix, member = parsed
+    if prefix == contact_display_name.strip():
+        return member
+    return sender_raw
+
+
 def similarity_score(a_norm: str, b_norm: str) -> float:
     """Сходство двух уже нормализованных строк, [0.0, 1.0]."""
     if not a_norm and not b_norm:

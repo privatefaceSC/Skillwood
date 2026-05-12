@@ -1,13 +1,18 @@
 """Одноразовые миграции данных.
 
-Запуск: `python -m data.migrations`.
+Запуск: `python -m data.migrations [имя_миграции]`.
+
+Без аргумента — `migrate_to_contacts_v1` для обратной совместимости.
 """
 from datetime import datetime
 
+import sqlalchemy
+
 from . import db_sessions
-from .contacts import Contact, MessengerHandle
-from .matching import normalize
-from .users import Messages
+from .contacts import Contact, MergeSuggestion, MessengerHandle
+from .crypto import _PREFIX as _ENC_PREFIX, encrypt as _encrypt_text
+from .matching import normalize, split_group_sender
+from .users import Messages, User
 
 
 def migrate_to_contacts_v1(db) -> dict:
@@ -81,11 +86,126 @@ def migrate_to_contacts_v1(db) -> dict:
     }
 
 
+def migrate_group_handles_v1(db) -> dict:
+    """Задним числом склеить handles с общим префиксом в групповые Contact'ы.
+
+    Идемпотентна. Запускать ПОСЛЕ migrate_to_contacts_v1.
+
+    Алгоритм:
+    1. Для каждого user_id группируем все handles по
+       split_group_sender(sender_raw)[0]. Для каждого префикса с ≥ 2 handles,
+       распределённых по ≥ 2 разным Contact'ам, переподвязываем их на единый
+       Contact (существующий с display_name=prefix, иначе создаём).
+    2. Опустевшие Contact'ы (без handles вообще — могли появиться как из шага 1,
+       так и от ручных перемещений через /contacts/handles/<id>/move) удаляются
+       вместе с pending-MergeSuggestion, ссылающимися на них.
+
+    Возвращает {"groups_created", "handles_moved", "contacts_removed"}.
+    """
+    groups_created = 0
+    handles_moved = 0
+    contacts_removed = 0
+
+    user_ids = [uid for (uid,) in db.query(User.id).all()]
+    for user_id in user_ids:
+        handles = (db.query(MessengerHandle)
+                   .filter(MessengerHandle.user_id == user_id).all())
+        groups: dict[str, list] = {}
+        for h in handles:
+            parsed = split_group_sender(h.sender_raw)
+            if parsed is None:
+                continue
+            groups.setdefault(parsed[0], []).append(h)
+
+        for prefix, hs in groups.items():
+            if len(hs) < 2:
+                continue
+            contact_ids = {h.contact_id for h in hs}
+
+            existing_group = (db.query(Contact)
+                              .filter(Contact.user_id == user_id,
+                                      Contact.display_name == prefix).first())
+
+            if (existing_group and len(contact_ids) == 1
+                    and next(iter(contact_ids)) == existing_group.id):
+                continue
+
+            if existing_group is None:
+                group_contact = Contact(user_id=user_id, display_name=prefix)
+                db.add(group_contact)
+                db.flush()
+                target_id = group_contact.id
+                groups_created += 1
+            else:
+                target_id = existing_group.id
+
+            for h in hs:
+                if h.contact_id != target_id:
+                    h.contact_id = target_id
+                    handles_moved += 1
+            db.flush()
+
+        # Чистка осиротевших Contact'ов: тех, на кого больше не ссылается ни один handle.
+        # Это покрывает и наши перенесённые сиблинги, и orphans от ручных перемещений
+        # через /contacts/handles/<id>/move (баг отдельного эндпоинта).
+        user_contacts = db.query(Contact).filter(Contact.user_id == user_id).all()
+        for c in user_contacts:
+            has_handles = (db.query(MessengerHandle)
+                           .filter(MessengerHandle.contact_id == c.id).count())
+            if has_handles == 0:
+                db.query(MergeSuggestion).filter(
+                    MergeSuggestion.status == "pending",
+                    MergeSuggestion.target_contact_id == c.id,
+                ).update({MergeSuggestion.status: "dismissed"},
+                         synchronize_session=False)
+                db.delete(c)
+                contacts_removed += 1
+        db.flush()
+
+    db.commit()
+    return {
+        "groups_created": groups_created,
+        "handles_moved": handles_moved,
+        "contacts_removed": contacts_removed,
+    }
+
+
+def migrate_encrypt_messages_v1(db) -> dict:
+    """Зашифровать незашифрованный `messages.text` в БД.
+
+    Использует raw SQL, чтобы обойти TypeDecorator `EncryptedText` (он бы
+    расшифровал на load и зашифровал на save → двойное шифрование).
+
+    Идемпотентна: сообщения с уже зашифрованным текстом пропускаем.
+
+    Возвращает {"encrypted": сколько_зашифровали}.
+    """
+    rows = db.execute(sqlalchemy.text("SELECT id, text FROM messages")).fetchall()
+    encrypted = 0
+    for row_id, text in rows:
+        if text is None or text.startswith(_ENC_PREFIX):
+            continue
+        new_text = _encrypt_text(text)
+        db.execute(
+            sqlalchemy.text("UPDATE messages SET text = :t WHERE id = :i"),
+            {"t": new_text, "i": row_id},
+        )
+        encrypted += 1
+    db.commit()
+    return {"encrypted": encrypted}
+
+
 if __name__ == "__main__":
+    import sys
+    name = sys.argv[1] if len(sys.argv) > 1 else "migrate_to_contacts_v1"
+    func = globals().get(name)
+    if func is None or not callable(func) or not name.startswith("migrate_"):
+        print(f"Неизвестная миграция: {name}")
+        sys.exit(1)
     db_sessions.global_init("db/blogs.db")
     session = db_sessions.create_session()
     try:
-        stats = migrate_to_contacts_v1(session)
-        print(f"Миграция завершена: {stats}")
+        stats = func(session)
+        print(f"Миграция {name} завершена: {stats}")
     finally:
         session.close()

@@ -86,6 +86,9 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }
         findViewById<MaterialButton>(R.id.btn_test).setOnClickListener { onTest() }
+        findViewById<MaterialButton>(R.id.btn_app_filter).setOnClickListener {
+            startActivity(Intent(this, AppFilterActivity::class.java))
+        }
         findViewById<MaterialButton>(R.id.btn_disconnect).setOnClickListener { onDisconnect() }
     }
 

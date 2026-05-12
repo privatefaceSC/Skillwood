@@ -7,6 +7,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN"/>
+            <category android:name="android.intent.category.LAUNCHER"/>
+        </intent>
+    </queries>
+
     <application
         android:name=".SkillwoodApp"
         android:label="@string/app_name"
@@ -23,6 +30,11 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+
+        <activity android:name=".AppFilterActivity"
+                  android:exported="false"
+                  android:label="@string/app_filter_title"
+                  android:parentActivityName=".MainActivity"/>
 
         <service android:name=".SkillwoodListener"
                  android:exported="true"

@@ -64,10 +64,17 @@ def find_or_create_handle(db, user_id: int, messenger_name: str, sender_raw: str
     """Возвращает (MessengerHandle, created: bool).
 
     Если handle для (user_id, messenger_name, sender_raw) уже есть — отдаём его.
-    Иначе создаём Contact с display_name=sender_raw и MessengerHandle, запускаем
-    suggest_merges_for_handle и возвращаем созданный handle с created=True.
+
+    Если sender_raw разбирается как 'prefix: member' И среди handles того же
+    пользователя уже есть другой handle с тем же prefix — переподвязываем
+    всех сиблингов на единый Contact с display_name=prefix (создаём при первом
+    промоушне) и привязываем новый handle туда же. Опустевшие одиночные
+    Contact'ы удаляются. suggest_merges_for_handle для групповых handles
+    не вызывается.
+
+    Иначе — создаём Contact с display_name=sender_raw и запускаем автомэтчинг.
     """
-    from .matching import normalize, suggest_merges_for_handle
+    from .matching import normalize, split_group_sender, suggest_merges_for_handle
 
     handle = (
         db.query(MessengerHandle)
@@ -80,6 +87,75 @@ def find_or_create_handle(db, user_id: int, messenger_name: str, sender_raw: str
     )
     if handle:
         return handle, False
+
+    parsed = split_group_sender(sender_raw)
+    if parsed is not None:
+        prefix, _member = parsed
+        all_handles = (
+            db.query(MessengerHandle)
+            .filter(MessengerHandle.user_id == user_id)
+            .all()
+        )
+        siblings = []
+        for h in all_handles:
+            if h.sender_raw == sender_raw:
+                continue
+            sp = split_group_sender(h.sender_raw)
+            if sp is not None and sp[0] == prefix:
+                siblings.append(h)
+
+        if siblings:
+            existing_group = (db.query(Contact)
+                              .filter(Contact.user_id == user_id,
+                                      Contact.display_name == prefix).first())
+            sibling_contact_ids = {h.contact_id for h in siblings}
+
+            if existing_group is not None and sibling_contact_ids == {existing_group.id}:
+                group_contact_id = existing_group.id
+            else:
+                if existing_group is None:
+                    group_contact = Contact(user_id=user_id, display_name=prefix)
+                    db.add(group_contact)
+                    db.flush()
+                    group_contact_id = group_contact.id
+                else:
+                    group_contact_id = existing_group.id
+
+                moved_handle_ids = []
+                old_contact_ids = set()
+                for h in siblings:
+                    if h.contact_id != group_contact_id:
+                        old_contact_ids.add(h.contact_id)
+                        h.contact_id = group_contact_id
+                        moved_handle_ids.append(h.id)
+                db.flush()
+
+                for old_id in old_contact_ids:
+                    remaining = (db.query(MessengerHandle)
+                                 .filter(MessengerHandle.contact_id == old_id).count())
+                    if remaining == 0:
+                        conditions = [MergeSuggestion.target_contact_id == old_id]
+                        if moved_handle_ids:
+                            conditions.append(MergeSuggestion.source_handle_id.in_(moved_handle_ids))
+                        db.query(MergeSuggestion).filter(
+                            MergeSuggestion.status == "pending",
+                            sqlalchemy.or_(*conditions),
+                        ).update({MergeSuggestion.status: "dismissed"},
+                                 synchronize_session=False)
+                        db.query(Contact).filter(Contact.id == old_id).delete(
+                            synchronize_session=False)
+                db.flush()
+
+            handle = MessengerHandle(
+                contact_id=group_contact_id,
+                user_id=user_id,
+                messenger_name=messenger_name,
+                sender_raw=sender_raw,
+                sender_normalized=normalize(sender_raw),
+            )
+            db.add(handle)
+            db.flush()
+            return handle, True
 
     contact = Contact(user_id=user_id, display_name=sender_raw)
     db.add(contact)

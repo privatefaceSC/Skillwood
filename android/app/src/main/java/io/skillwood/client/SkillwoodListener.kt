@@ -24,8 +24,11 @@ class SkillwoodListener : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        if (sbn.packageName == applicationContext.packageName) return
         if (!settings.isConfigured()) return
+        if (!NotificationFilter.shouldForward(
+                sbn.packageName,
+                applicationContext.packageName,
+                settings.allowedPackages)) return
 
         val appName = try {
             val info = packageManager.getApplicationInfo(sbn.packageName, 0)
