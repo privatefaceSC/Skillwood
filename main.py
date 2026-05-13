@@ -424,7 +424,7 @@ def register_routes(app: Flask) -> None:
     def handle_move(handle_id):
         if not session.get('user_id'):
             return redirect('/login')
-        from data.contacts import Contact, MessengerHandle
+        from data.contacts import Contact, MergeSuggestion, MessengerHandle
         db = get_db()
         user_id = session['user_id']
         handle = db.query(MessengerHandle).filter(
@@ -439,7 +439,20 @@ def register_routes(app: Flask) -> None:
             Contact.id == target_id, Contact.user_id == user_id).first()
         if not target:
             return 'Not Found', 404
+        old_contact_id = handle.contact_id
+        if old_contact_id == target_id:
+            return redirect('/contacts/manage')
         handle.contact_id = target_id
+        db.flush()
+        remaining = db.query(MessengerHandle).filter(
+            MessengerHandle.contact_id == old_contact_id).count()
+        if remaining == 0:
+            db.query(MergeSuggestion).filter(
+                MergeSuggestion.status == "pending",
+                MergeSuggestion.target_contact_id == old_contact_id,
+            ).update({MergeSuggestion.status: "dismissed"}, synchronize_session=False)
+            db.query(Contact).filter(Contact.id == old_contact_id).delete(
+                synchronize_session=False)
         db.commit()
         return redirect('/contacts/manage')
 

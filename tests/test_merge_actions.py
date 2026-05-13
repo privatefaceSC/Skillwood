@@ -145,3 +145,71 @@ def test_handle_move_changes_contact(client, two_contacts):
         assert h.contact_id == c2_id
     finally:
         db.close()
+
+
+def test_handle_move_deletes_emptied_source(client, two_contacts):
+    user_id, c1_id, c2_id, h1_id, _ = two_contacts
+    _login(client, user_id)
+    client.post(f'/contacts/handles/{h1_id}/move', data={"target_contact_id": c2_id})
+
+    db = db_sessions.create_session()
+    try:
+        assert db.query(Contact).filter(Contact.id == c1_id).first() is None
+    finally:
+        db.close()
+
+
+def test_handle_move_keeps_source_with_other_handles(client, two_contacts):
+    user_id, c1_id, c2_id, h1_id, _ = two_contacts
+    db = db_sessions.create_session()
+    extra = MessengerHandle(contact_id=c1_id, user_id=user_id,
+                            messenger_name="Telegram", sender_raw="A2",
+                            sender_normalized="a2")
+    db.add(extra)
+    db.commit()
+    db.close()
+
+    _login(client, user_id)
+    client.post(f'/contacts/handles/{h1_id}/move', data={"target_contact_id": c2_id})
+
+    db = db_sessions.create_session()
+    try:
+        assert db.query(Contact).filter(Contact.id == c1_id).first() is not None
+    finally:
+        db.close()
+
+
+def test_handle_move_dismisses_dangling_suggestion(client, two_contacts):
+    user_id, c1_id, c2_id, h1_id, h2_id = two_contacts
+    db = db_sessions.create_session()
+    sug = MergeSuggestion(user_id=user_id, source_handle_id=h2_id,
+                          target_contact_id=c1_id, score=0.9, status="pending")
+    db.add(sug)
+    db.commit()
+    sug_id = sug.id
+    db.close()
+
+    _login(client, user_id)
+    client.post(f'/contacts/handles/{h1_id}/move', data={"target_contact_id": c2_id})
+
+    db = db_sessions.create_session()
+    try:
+        s = db.get(MergeSuggestion, sug_id)
+        assert s.status == "dismissed"
+    finally:
+        db.close()
+
+
+def test_handle_move_noop_when_target_equals_current(client, two_contacts):
+    user_id, c1_id, _, h1_id, _ = two_contacts
+    _login(client, user_id)
+    r = client.post(f'/contacts/handles/{h1_id}/move', data={"target_contact_id": c1_id})
+    assert r.status_code in (200, 302)
+
+    db = db_sessions.create_session()
+    try:
+        assert db.query(Contact).filter(Contact.id == c1_id).first() is not None
+        h = db.get(MessengerHandle, h1_id)
+        assert h.contact_id == c1_id
+    finally:
+        db.close()
