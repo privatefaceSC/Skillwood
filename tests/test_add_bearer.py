@@ -64,20 +64,9 @@ def test_add_with_invalid_bearer_returns_401(client):
     assert r.status_code == 401
 
 
-def test_add_without_bearer_falls_back_to_ip(client, app):
-    db = db_sessions.create_session()
-    u = User(name="T", surname="U", sex="male", email="b@e.com",
-             hashed_password="x", tablet_ip="127.0.0.1")
-    db.add(u)
-    db.commit()
-    db.close()
+def test_add_without_bearer_returns_401(client):
     r = client.post('/add', data={"sender": "X", "text": "Y", "messenger_name": "Z"})
-    assert r.status_code == 200
-    db = db_sessions.create_session()
-    try:
-        assert db.query(Messages).count() == 1
-    finally:
-        db.close()
+    assert r.status_code == 401
 
 
 def test_add_with_bearer_updates_device_last_seen(client, user_and_device):

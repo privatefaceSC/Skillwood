@@ -105,6 +105,7 @@ def register_routes(app: Flask) -> None:
         if not session.get('user_id'):
             return redirect('/login')
         from data.contacts import Contact, MergeSuggestion
+        from data.devices import Device
         db = get_db()
         user = db.query(User).filter(User.id == session['user_id']).first()
         contacts_count = db.query(Contact).filter(Contact.user_id == user.id).count()
@@ -112,10 +113,11 @@ def register_routes(app: Flask) -> None:
         pending_suggestions = (db.query(MergeSuggestion)
                                .filter(MergeSuggestion.user_id == user.id,
                                        MergeSuggestion.status == "pending").count())
+        device_connected = db.query(Device.id).filter(Device.user_id == user.id).first() is not None
         return render_template(
             'index.html',
             user=user,
-            device_connected=bool(user.tablet_ip),
+            device_connected=device_connected,
             contacts_count=contacts_count,
             messages_count=messages_count,
             pending_suggestions=pending_suggestions,
@@ -157,25 +159,13 @@ def register_routes(app: Flask) -> None:
     def code():
         if not session.get('user_id'):
             return redirect('/login')
-        user = get_db().query(User).filter(User.id == session['user_id']).first()
-        if user.tablet_ip:
+        from data.devices import Device
+        db = get_db()
+        user = db.query(User).filter(User.id == session['user_id']).first()
+        has_device = db.query(Device.id).filter(Device.user_id == user.id).first() is not None
+        if has_device:
             return redirect('/home')
         return render_template('code.html', code=user.connect_code)
-
-    @app.route('/connect', methods=['GET'])
-    def connect_tablet():
-        db = get_db()
-        code_param = request.args.get('code')
-        tablet_ip = request.remote_addr
-        print(f"Получен код {code_param} от пользователя с айпи: {tablet_ip}")
-        user = db.query(User).filter(User.connect_code == code_param).first()
-        if user:
-            user.tablet_ip = tablet_ip
-            db.commit()
-            print(f"Устройство подключёно к пользователю {user.name}")
-            return "OK", 200
-        print("Неверный код")
-        return "Неверный код", 404
 
     @app.route('/login', methods=['GET', 'POST'])
     def login():
@@ -548,69 +538,15 @@ def register_routes(app: Flask) -> None:
             return 'Bad Request', 400
 
         db = get_db()
-        auth = request.headers.get('Authorization', '')
-        if auth.startswith('Bearer '):
-            device = _device_from_bearer(db)
-            if device is None:
-                return 'Unauthorized', 401
-            device.last_seen_ip = request.remote_addr
-            device.last_seen_at = datetime.now()
-            user_id = device.user_id
-            db.commit()
-        else:
-            tablet_ip = request.remote_addr
-            user = db.query(User).filter(User.tablet_ip == tablet_ip).first()
-            if not user:
-                print(f"Неизвестное устройство с IP: {tablet_ip}")
-                return 'OK', 200
-            user_id = user.id
-
-        record_message(db, user_id, messenger_name, sender, text_value)
-        return 'OK', 200
-
-    @app.route('/debug/extras', methods=['POST'])
-    def debug_extras_ingest():
-        """Принимает сырой дамп Notification.extras с устройства."""
-        from data.debug_dumps import DebugDump
-        db = get_db()
         device = _device_from_bearer(db)
         if device is None:
-            return jsonify({'error': 'unauthorized'}), 401
-        body = request.get_json(silent=True) or {}
-        dump = (body.get('dump') or '').strip()
-        if not dump:
-            return jsonify({'error': 'empty dump'}), 400
-        # Не разрешаем гигантских дампов (битмапы и т.п.) положить базу.
-        if len(dump) > 200_000:
-            dump = dump[:200_000] + '\n... [truncated by server] ...'
-        d = DebugDump(
-            user_id=device.user_id,
-            package_name=(body.get('package_name') or '')[:200] or None,
-            app_name=(body.get('app_name') or '')[:200] or None,
-            dump=dump,
-        )
-        db.add(d)
-        # Чтобы таблица не разрасталась, держим только последние 200 на пользователя.
-        old = (db.query(DebugDump)
-               .filter(DebugDump.user_id == device.user_id)
-               .order_by(DebugDump.id.desc())
-               .offset(200).all())
-        for o in old:
-            db.delete(o)
+            return 'Unauthorized', 401
+        device.last_seen_ip = request.remote_addr
+        device.last_seen_at = datetime.now()
         db.commit()
-        return jsonify({'ok': True})
 
-    @app.route('/debug')
-    def debug_index():
-        if not session.get('user_id'):
-            return redirect('/login')
-        from data.debug_dumps import DebugDump
-        db = get_db()
-        dumps = (db.query(DebugDump)
-                 .filter(DebugDump.user_id == session['user_id'])
-                 .order_by(DebugDump.id.desc())
-                 .limit(30).all())
-        return render_template('debug.html', dumps=dumps)
+        record_message(db, device.user_id, messenger_name, sender, text_value)
+        return 'OK', 200
 
     @app.route('/api/ping')
     def api_ping():
@@ -642,39 +578,6 @@ def register_routes(app: Flask) -> None:
             'user': {'id': user.id, 'name': user.name},
             'device': {'id': device.id, 'name': device.name},
         })
-
-    @app.route('/admin/test', methods=['GET', 'POST'])
-    def admin_test():
-        """Тестер /add: форма отправки + список последних принятых сообщений."""
-        if not session.get('user_id'):
-            return redirect('/login')
-        from data.contacts import record_message
-
-        db = get_db()
-        user = db.query(User).filter(User.id == session['user_id']).first()
-        flash_message = None
-
-        if request.method == 'POST':
-            sender = (request.form.get('sender') or '').strip()
-            text_value = (request.form.get('text') or '').strip()
-            messenger_name = (request.form.get('messenger_name') or '').strip()
-            if not sender or not text_value or not messenger_name:
-                flash_message = ('error', 'Заполните все три поля.')
-            else:
-                record_message(db, user.id, messenger_name, sender, text_value)
-                flash_message = ('ok', f'Сообщение принято: [{messenger_name}] {sender} → «{text_value}»')
-
-        recent = (db.query(Messages)
-                  .filter(Messages.user_id == user.id)
-                  .order_by(Messages.id.desc())
-                  .limit(20)
-                  .all())
-        return render_template('admin_test.html',
-                               recent=recent,
-                               tablet_ip=user.tablet_ip,
-                               server_remote_addr=request.remote_addr,
-                               flash_message=flash_message)
-
 
 def _generate_code() -> str:
     return ''.join(random.choices(string.digits, k=8))

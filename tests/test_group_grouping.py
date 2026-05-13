@@ -15,9 +15,9 @@ from data.migrations import migrate_group_handles_v1
 from data.users import Messages, User
 
 
-def _make_user(db, email="u@example.com", ip="127.0.0.1"):
+def _make_user(db, email="u@example.com"):
     u = User(name="U", surname="S", sex="male", email=email,
-             hashed_password="x", tablet_ip=ip)
+             hashed_password="x")
     db.add(u)
     db.commit()
     return u
@@ -148,8 +148,8 @@ def test_promotion_works_cross_messenger(db_session):
 
 
 def test_promotion_does_not_cross_users(db_session):
-    u1 = _make_user(db_session, email="a@e.com", ip="127.0.0.1")
-    u2 = _make_user(db_session, email="b@e.com", ip="127.0.0.2")
+    u1 = _make_user(db_session, email="a@e.com")
+    u2 = _make_user(db_session, email="b@e.com")
     find_or_create_handle(db_session, u1.id, "Telegram", "9б класс: Софья")
     find_or_create_handle(db_session, u2.id, "Telegram", "9б класс: Вика")
 
@@ -352,7 +352,7 @@ def _login(client, user_id):
 def test_contact_detail_strips_group_prefix_in_html(client, app):
     db = db_sessions.create_session()
     u = User(name="T", surname="U", sex="male", email="g@e.com",
-             hashed_password="x", tablet_ip="127.0.0.1")
+             hashed_password="x")
     db.add(u); db.commit()
     record_message(db, u.id, "Telegram", "9б класс: Софья", "привет всем")
     record_message(db, u.id, "Telegram", "9б класс: Вика", "ответ")
@@ -374,7 +374,7 @@ def test_contact_detail_strips_group_prefix_in_html(client, app):
 def test_contact_messages_json_includes_display_author(client, app):
     db = db_sessions.create_session()
     u = User(name="T", surname="U", sex="male", email="g2@e.com",
-             hashed_password="x", tablet_ip="127.0.0.1")
+             hashed_password="x")
     db.add(u); db.commit()
     record_message(db, u.id, "Telegram", "9б класс: Софья", "1")
     record_message(db, u.id, "Telegram", "9б класс: Вика", "2")
@@ -393,7 +393,7 @@ def test_contact_messages_json_includes_display_author(client, app):
 def test_messages_json_keeps_sender_for_personal_contact(client, app):
     db = db_sessions.create_session()
     u = User(name="T", surname="U", sex="male", email="p@e.com",
-             hashed_password="x", tablet_ip="127.0.0.1")
+             hashed_password="x")
     db.add(u); db.commit()
     record_message(db, u.id, "Telegram", "Иван", "привет")
     contact = db.query(Contact).filter(Contact.display_name == "Иван").one()

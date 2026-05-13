@@ -15,7 +15,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Зависимости зафиксированы в `requirements.txt` (Flask 3.1, Flask-Login, Flask-WTF, SQLAlchemy 2.0, sqlalchemy-serializer, Werkzeug, requests, pytest).
+Зависимости зафиксированы в `requirements.txt` (Flask 3.1, Flask-Login, SQLAlchemy 2.0, sqlalchemy-serializer, Werkzeug, requests, pytest).
 
 Тесты на `pytest` в [tests/](tests/). Запуск:
 
@@ -27,7 +27,7 @@ python main.py
 
 ## Архитектура
 
-Это небольшое Flask-приложение, работающее как **мост между личным Android-устройством (с MacroDroid) и веб-панелью** для просмотра уведомлений из мессенджеров. Интерфейс и тексты — на русском.
+Это небольшое Flask-приложение, работающее как **мост между собственным Android-клиентом (Notification Listener) и веб-панелью** для просмотра уведомлений из мессенджеров. Интерфейс и тексты — на русском.
 
 ### Создание приложения
 
@@ -36,10 +36,10 @@ python main.py
 ### Привязка устройства (центральная нетривиальная идея)
 
 1. Регистрация на `/register` → сервер генерирует 8-значный `connect_code`, сохраняет на `User`.
-2. Код показывается на `/code` (auto-refresh 3 секунды).
-3. Android-устройство (макрос MacroDroid) делает `GET /connect?code=<код>`. Сервер сохраняет `request.remote_addr` как `User.tablet_ip`.
-4. После заполнения `tablet_ip` страница `/code` редиректит на `/home`.
-5. Уведомления из мессенджеров шлются через `POST /add` (поля `sender`, `text`, `messenger_name`). Пользователь определяется по совпадению `request.remote_addr` с `User.tablet_ip` — без токена. Стабильность IP в локалке критична.
+2. Код показывается на `/code` (auto-refresh 3 секунды); страница редиректит на `/home`, как только у пользователя появляется хотя бы один `Device`.
+3. Android-клиент шлёт `POST /api/connect` с `{code, device_name}`. Сервер находит `User` по `connect_code`, создаёт `Device(user_id, name, token_hash)` и возвращает **сырой Bearer-токен** — больше нигде в открытом виде он не хранится (в БД лежит только `sha256(token)`).
+4. Все последующие запросы Android-клиента (`/add`, `/api/me`) идут с заголовком `Authorization: Bearer <token>`. Сервер ищет `Device` по `hash_token(token)` и определяет владельца через `device.user_id`. См. `_device_from_bearer` в [main.py](main.py).
+5. На каждый успешный `POST /add` обновляются `device.last_seen_ip` и `device.last_seen_at`.
 
 ### Контакт-центричная модель сообщений
 
@@ -74,48 +74,33 @@ UI:
 
 ### Маршруты
 
-Все живут в [main.py](main.py). Авторизация — через `flask.session['user_id']`; декоратора `@login_required` нет, каждый защищённый маршрут проверяет `session.get('user_id')` вручную.
+Все живут в [main.py](main.py). Веб-авторизация — через `flask.session['user_id']`; декоратора `@login_required` нет, каждый защищённый маршрут проверяет `session.get('user_id')` вручную. Android-API авторизуется Bearer-токеном через `_device_from_bearer`.
 
 - `/`, `/home`, `/login`, `/register`, `/logout`, `/code` — страницы аутентификации/профиля.
-- `/connect` (GET) — привязка устройства, дёргается из MacroDroid.
-- `/add` (POST) — приём сообщений, дёргается из MacroDroid; пользователь определяется по `remote_addr`. Возвращает 400 без обязательных полей, 200 без логирования если устройство не привязано к пользователю.
+- `/api/ping` — публичный health-check для Android-клиента.
+- `/api/connect` (POST, JSON `{code, device_name}`) — обмен `connect_code` на Bearer-токен и создание `Device`.
+- `/api/me` (GET, Bearer) — кто я и какое устройство.
+- `/add` (POST, Bearer) — приём сообщений. Поля формы: `sender`, `text`, `messenger_name`. 400 без обязательных полей, 401 без валидного Bearer.
+- `/download`, `/download/skillwood.apk` — страница и раздача APK Android-клиента.
 - `/contacts`, `/contacts/<id>`, `/contacts/manage` — UI.
-- `/contacts/<id>/rename`, `/contacts/merge`, `/contacts/handles/<id>/move` — управление связями.
+- `/contacts/<id>/rename`, `/contacts/<id>/delete`, `/contacts/merge`, `/contacts/handles/<id>/move` — управление связями.
 - `/contacts/suggestions/<id>/accept`, `.../dismiss` — действия по подсказкам.
+- `/messages/<id>/delete` — удаление одного сообщения.
 
 ### Миграция исторических данных
 
-[data/migrations.py](data/migrations.py) `migrate_to_contacts_v1` — одноразовый скрипт (`python -m data.migrations`). Группирует существующие `Messages` по `(user_id, messenger_name, sender)` и создаёт под каждую группу `Contact + MessengerHandle`. Идемпотентна. Автомэтчинг для исторических данных намеренно не запускается — иначе UI завалится подсказками.
+[data/migrations.py](data/migrations.py) — одноразовые скрипты, запускаются через `python -m data.migrations [имя_миграции]`. Уже отработали на проде, оставлены ради идемпотентности и тестов:
 
-ВАЖНО: для существующей `db/blogs.db` нужно вручную добавить колонки `handle_id` и `created_at` в `messages` через `ALTER TABLE` перед запуском миграции — `SqlAlchemyBase.metadata.create_all` не делает ALTER на существующих таблицах. Команда:
-
-```bash
-.venv/Scripts/python -c "
-import sqlite3
-con = sqlite3.connect('db/blogs.db')
-cur = con.cursor()
-cols = [r[1] for r in cur.execute('PRAGMA table_info(messages)').fetchall()]
-if 'handle_id' not in cols:
-    cur.execute('ALTER TABLE messages ADD COLUMN handle_id INTEGER REFERENCES messenger_handles(id)')
-if 'created_at' not in cols:
-    cur.execute('ALTER TABLE messages ADD COLUMN created_at DATETIME')
-con.commit()
-con.close()
-"
-```
+- `migrate_to_contacts_v1` — привязка старых `Messages` к новым `Contact + MessengerHandle`. Без аргумента вызывается именно она.
+- `migrate_group_handles_v1` — раскладка sender'ов вида `«группа: имя»` по правильным контактам.
+- `migrate_encrypt_messages_v1` — шифрование исторических `Messages.text` через [data/crypto.py](data/crypto.py).
 
 ### Тестирование
 
 Тесты на `pytest` в [tests/](tests/). Фикстура `db_session` (в [tests/conftest.py](tests/conftest.py)) переинициализирует фабрику на in-memory SQLite через `db_sessions._reset_for_tests()` + `global_init(":memory:")`. Тесты с маршрутами создают приложение через `create_app(":memory:")` и используют `app.test_client()`.
 
-### Неиспользуемый код
-
-- В [data/user_api.py](data/user_api.py) объявлен REST-блюпринт, но он **не зарегистрирован** в `main.py` и обращается к полям (`about`), которых нет в модели `User`. Считай это мёртвым кодом, пока явно не работаешь над API.
-- В [forms/user.py](forms/user.py) есть `RegisterForm` (Flask-WTF), но `/register` парсит `request.form` напрямую и форму не использует.
-- Шаблон [templates/chats.html](templates/chats.html) больше не используется (лента теперь под `/contacts/<id>`), но оставлен на случай если понадобится откатить.
-
 ## Соглашения, которые стоит сохранять
 
 - Все строки, обращённые к пользователю (шаблоны, сообщения об ошибках, отладочные `print`), — на русском. При правках сохраняй язык.
-- Шаблоны несогласованы: [base.html](templates/base.html), [code.html](templates/code.html), [register.html](templates/register.html), [login.html](templates/login.html), [contacts.html](templates/contacts.html), [contacts_manage.html](templates/contacts_manage.html) используют Bootstrap 5 и Jinja-наследование от `base.html`; [index.html](templates/index.html) и [chats.html](templates/chats.html) — самостоятельные, со своим инлайн-`<style>`. Не предполагай, что шаблон расширяет `base.html`, не проверив.
+- Все шаблоны под [templates/](templates/) используют Bootstrap 5 и наследуются от [base.html](templates/base.html) через `{% extends 'base.html' %}`.
 - `SECRET_KEY` захардкожен как `'yandexlyceum_secret_key'` (это учебный проект Яндекс Лицея). Не меняй его без согласования с пользователем.

@@ -32,7 +32,7 @@ def user_with_chat(app):
     """Пользователь с одним контактом и тремя сообщениями: два «старых», одно «новое»."""
     db = db_sessions.create_session()
     u = User(name="T", surname="U", sex="male", email="t@e.com",
-             hashed_password="x", tablet_ip="127.0.0.1")
+             hashed_password="x")
     db.add(u)
     db.commit()
     c = Contact(user_id=u.id, display_name="Иван")

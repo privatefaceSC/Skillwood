@@ -25,7 +25,7 @@ def client(app):
 def user_and_contact(app):
     db = db_sessions.create_session()
     u = User(name="Test", surname="User", sex="male", email="t@e.com",
-             hashed_password="x", tablet_ip="127.0.0.1")
+             hashed_password="x")
     db.add(u)
     db.commit()
     contact = Contact(user_id=u.id, display_name="Иван")

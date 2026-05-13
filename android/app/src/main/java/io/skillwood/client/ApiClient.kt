@@ -69,21 +69,6 @@ class ApiClient(private val settings: SettingsRepository) {
         }
     }
 
-    suspend fun sendDebugDump(packageName: String, appName: String, dump: String): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            val url = settings.serverUrl ?: return@withContext err(Result.ErrorKind.Unknown, "no url")
-            val token = settings.deviceToken ?: return@withContext err(Result.ErrorKind.Unauthorized, "no token")
-            val body = JSONObject(mapOf(
-                "package_name" to packageName,
-                "app_name" to appName,
-                "dump" to dump,
-            )).toString().toRequestBody("application/json".toMediaType())
-            execute(
-                Request.Builder().url("$url/debug/extras")
-                    .header("Authorization", "Bearer $token").post(body).build()
-            ) { _ -> Result.Success(Unit) }
-        }
-
     suspend fun sendNotification(sender: String, text: String, messenger: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             val url = settings.serverUrl ?: return@withContext err(Result.ErrorKind.Unknown, "no url")

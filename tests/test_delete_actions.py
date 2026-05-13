@@ -21,9 +21,9 @@ def client(app):
     return app.test_client()
 
 
-def _make_user(db, email="u@e.com", ip="127.0.0.1"):
+def _make_user(db, email="u@e.com"):
     u = User(name="U", surname="S", sex="male", email=email,
-            hashed_password="x", tablet_ip=ip)
+            hashed_password="x")
     db.add(u); db.commit()
     return u
 
@@ -59,10 +59,10 @@ def test_contact_delete_removes_contact_handles_messages(client):
 
 def test_contact_delete_404_for_other_user(client):
     db = db_sessions.create_session()
-    owner = _make_user(db, email="o@e.com", ip="127.0.0.1")
+    owner = _make_user(db, email="o@e.com")
     record_message(db, owner.id, "Telegram", "Иван", "привет")
     contact = db.query(Contact).first()
-    intruder = _make_user(db, email="x@e.com", ip="127.0.0.2")
+    intruder = _make_user(db, email="x@e.com")
     contact_id, intruder_id = contact.id, intruder.id
     db.close()
 
@@ -140,9 +140,9 @@ def test_message_delete_removes_one_message(client):
 
 def test_message_delete_404_for_other_user(client):
     db = db_sessions.create_session()
-    owner = _make_user(db, email="o@e.com", ip="127.0.0.1")
+    owner = _make_user(db, email="o@e.com")
     msg = record_message(db, owner.id, "Telegram", "Иван", "секрет")
-    intruder = _make_user(db, email="x@e.com", ip="127.0.0.2")
+    intruder = _make_user(db, email="x@e.com")
     msg_id, intruder_id = msg.id, intruder.id
     db.close()
 

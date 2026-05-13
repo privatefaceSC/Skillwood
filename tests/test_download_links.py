@@ -21,7 +21,7 @@ def client(app):
 def _make_user(app):
     db = db_sessions.create_session()
     u = User(name="T", surname="U", sex="male", email="t@e.com",
-             hashed_password="x", connect_code="12345678", tablet_ip=None)
+             hashed_password="x", connect_code="12345678")
     db.add(u)
     db.commit()
     uid = u.id

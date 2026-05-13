@@ -7,9 +7,9 @@ from data.contacts import (
 from data.users import Messages, User
 
 
-def _make_user(db, ip="127.0.0.1", email="u@example.com"):
+def _make_user(db, email="u@example.com"):
     u = User(name="U", surname="S", sex="male", email=email,
-             hashed_password="x", tablet_ip=ip)
+             hashed_password="x")
     db.add(u)
     db.commit()
     return u
