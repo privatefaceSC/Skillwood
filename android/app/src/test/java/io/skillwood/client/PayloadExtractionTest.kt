@@ -146,6 +146,16 @@ class PayloadExtractionTest {
     }
 
     @Test
+    fun skips_group_summary() {
+        val p = PayloadExtraction.fromExtras(
+            extras = bundle(title = "VK", text = "3 непрочитанных диалога"),
+            appName = "VK",
+            flags = Notification.FLAG_GROUP_SUMMARY,
+        )
+        assertNull(p)
+    }
+
+    @Test
     fun skips_foreground_service() {
         val p = PayloadExtraction.fromExtras(
             extras = bundle(title = "Сервис", text = "запущен"),

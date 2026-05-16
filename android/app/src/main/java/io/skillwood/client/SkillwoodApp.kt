@@ -26,7 +26,7 @@ class SkillwoodApp : Application(), Configuration.Provider {
     private fun ensureNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = getSystemService(NotificationManager::class.java)
-        val ch = NotificationChannel(
+        val foreground = NotificationChannel(
             CHANNEL_FOREGROUND,
             getString(R.string.channel_foreground),
             NotificationManager.IMPORTANCE_LOW,
@@ -34,7 +34,21 @@ class SkillwoodApp : Application(), Configuration.Provider {
             description = getString(R.string.channel_foreground_desc)
             setShowBadge(false)
         }
-        nm.createNotificationChannel(ch)
+        // Канал для full-screen-intent: IMPORTANCE_HIGH обязателен, иначе
+        // система не запустит full-screen activity при погашенном экране.
+        val wake = NotificationChannel(
+            CHANNEL_WAKE,
+            getString(R.string.channel_wake),
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = getString(R.string.channel_wake_desc)
+            setShowBadge(false)
+            setSound(null, null)
+            enableVibration(false)
+            lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
+        }
+        nm.createNotificationChannel(foreground)
+        nm.createNotificationChannel(wake)
     }
 
     private fun scheduleQueueDrain() {
@@ -49,5 +63,6 @@ class SkillwoodApp : Application(), Configuration.Provider {
 
     companion object {
         const val CHANNEL_FOREGROUND = "skillwood_foreground"
+        const val CHANNEL_WAKE = "skillwood_wake"
     }
 }

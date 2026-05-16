@@ -175,6 +175,46 @@
 
             <com.google.android.material.button.MaterialButton
                 style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:id="@+id/btn_check_access"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/action_check_access"
+                android:layout_marginBottom="12dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:id="@+id/btn_files_access"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/action_files_access"
+                android:layout_marginBottom="12dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:id="@+id/btn_overlay_access"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/action_overlay_access"
+                android:layout_marginBottom="12dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:id="@+id/btn_miui_bg"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/action_miui_bg"
+                android:layout_marginBottom="12dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                android:id="@+id/btn_fsi_access"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/action_fsi_access"
+                android:layout_marginBottom="12dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                 android:id="@+id/btn_disconnect"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

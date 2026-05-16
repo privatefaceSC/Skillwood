@@ -109,6 +109,47 @@ class SettingsRepositoryTest {
     }
 
     @Test
+    fun record_unauthorized_increments_streak_and_returns_new_value() {
+        assertEquals(0, repo.unauthStreak)
+        assertEquals(1, repo.recordUnauthorized())
+        assertEquals(2, repo.recordUnauthorized())
+        assertEquals(2, repo.unauthStreak)
+    }
+
+    @Test
+    fun record_success_resets_unauth_streak() {
+        repo.recordUnauthorized()
+        repo.recordUnauthorized()
+        repo.recordSuccess()
+        assertEquals(0, repo.unauthStreak)
+    }
+
+    @Test
+    fun clear_auth_wipes_token_but_keeps_url_whitelist_and_stats() {
+        repo.serverUrl = "http://192.168.1.3:5000"
+        repo.deviceToken = "tkn-xyz"
+        repo.userName = "Defi"
+        repo.deviceName = "Pad"
+        repo.setPackageAllowed("org.telegram.messenger", true)
+        repo.recordSuccess()
+        repo.recordUnauthorized()
+        repo.recordUnauthorized()
+
+        repo.clearAuth()
+
+        assertNull(repo.deviceToken)
+        assertNull(repo.userName)
+        assertNull(repo.deviceName)
+        assertFalse(repo.isConfigured())
+        assertEquals(0, repo.unauthStreak)
+        // URL, whitelist и накопленная статистика сохраняются — переподключение не должно
+        // заставлять пользователя настраивать клиента с нуля.
+        assertEquals("http://192.168.1.3:5000", repo.serverUrl)
+        assertEquals(setOf("org.telegram.messenger"), repo.allowedPackages)
+        assertEquals(1, repo.sent)
+    }
+
+    @Test
     fun allowed_packages_returns_immutable_snapshot() {
         repo.setPackageAllowed("org.telegram.messenger", true)
         val snapshot = repo.allowedPackages

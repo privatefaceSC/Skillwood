@@ -62,6 +62,16 @@ def decrypt(value):
         return value
 
 
+def encrypt_bytes(data: bytes) -> bytes:
+    """Зашифровать бинарные данные (содержимое медиа-файла) тем же ключом."""
+    return _cipher().encrypt(data)
+
+
+def decrypt_bytes(token: bytes) -> bytes:
+    """Расшифровать то, что записал encrypt_bytes."""
+    return _cipher().decrypt(token)
+
+
 class EncryptedText(types.TypeDecorator):
     """SQLAlchemy-тип: автоматически шифрует на запись, расшифровывает на чтение."""
     impl = types.Text

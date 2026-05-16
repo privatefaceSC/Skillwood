@@ -1,9 +1,11 @@
 import os
 import random
 import string
+import uuid
 from datetime import datetime
 
-from flask import Flask, abort, g, jsonify, redirect, render_template, request, send_from_directory, session
+from flask import (Flask, Response, abort, g, jsonify, redirect, render_template,
+                   request, send_from_directory, session)
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from data import db_sessions
@@ -65,11 +67,28 @@ def _enrich_with_last_message(db, contacts):
     return contacts
 
 
+def _attach_media(db, msgs):
+    """Подкладывает каждому сообщению список его вложений в m.media."""
+    from data.attachments import Attachment
+    ids = [m.id for m in msgs]
+    by_msg = {}
+    if ids:
+        for a in (db.query(Attachment)
+                  .filter(Attachment.message_id.in_(ids))
+                  .order_by(Attachment.id.asc()).all()):
+            by_msg.setdefault(a.message_id, []).append(a)
+    for m in msgs:
+        m.media = by_msg.get(m.id, [])
+    return msgs
+
+
 def create_app(db_path: str = "db/blogs.db") -> Flask:
     db_sessions.global_init(db_path)
 
     app = Flask(__name__)
     app.config['SECRET_KEY'] = 'yandexlyceum_secret_key'
+    # Потолок размера запроса: фото из уведомлений ~0.1-0.5 МБ, с запасом.
+    app.config['MAX_CONTENT_LENGTH'] = 25 * 1024 * 1024
 
     @app.teardown_appcontext
     def _close_db(_exc):
@@ -85,6 +104,11 @@ def get_db():
     if 'db' not in g:
         g.db = db_sessions.create_session()
     return g.db
+
+
+def _media_root() -> str:
+    """Каталог для зашифрованных медиа-файлов. По умолчанию media/ в cwd."""
+    return os.environ.get('SKILLWOOD_MEDIA_ROOT') or os.path.join(os.getcwd(), 'media')
 
 
 def register_routes(app: Flask) -> None:
@@ -265,6 +289,7 @@ def register_routes(app: Flask) -> None:
         )
         for m in msgs:
             m.display_author = display_author(m.sender, contact.display_name)
+        _attach_media(db, msgs)
         return render_template('contacts.html', contacts=contacts, selected=contact,
                                selected_handles=selected_handles, messages=msgs)
 
@@ -290,10 +315,12 @@ def register_routes(app: Flask) -> None:
         # будут «застревать» пока пользователь не перезагрузит страницу.
         contact.last_read_at = datetime.now()
         db.commit()
+        _attach_media(db, msgs)
         return jsonify({'messages': [
             {'id': m.id, 'sender': m.sender, 'text': m.text,
              'messenger_name': m.messenger_name, 'time': m.time,
-             'display_author': display_author(m.sender, contact.display_name)}
+             'display_author': display_author(m.sender, contact.display_name),
+             'attachments': [{'id': a.id, 'kind': a.kind} for a in m.media]}
             for m in msgs
         ]})
 
@@ -547,6 +574,115 @@ def register_routes(app: Flask) -> None:
 
         record_message(db, device.user_id, messenger_name, sender, text_value)
         return 'OK', 200
+
+    @app.route('/add_media', methods=['POST'])
+    def add_media():
+        """Приём медиа-вложения (пока только фото) от Android-клиента.
+
+        multipart/form-data: sender, messenger_name, обязательный файл `file`,
+        опционально text (подпись), kind (по умолчанию 'image'),
+        dedup_key (стабильный id источника — защита от повторных уведомлений).
+        """
+        from sqlalchemy.exc import IntegrityError
+
+        from data.attachments import Attachment
+        from data.contacts import find_or_create_handle
+        from data.crypto import encrypt_bytes
+
+        sender = request.form.get('sender')
+        messenger_name = request.form.get('messenger_name')
+        kind = request.form.get('kind') or 'image'
+        dedup_key = (request.form.get('dedup_key') or '').strip() or None
+        caption = request.form.get('text') or ''
+        upload = request.files.get('file')
+
+        if not sender or not messenger_name or upload is None:
+            return 'Bad Request', 400
+
+        db = get_db()
+        device = _device_from_bearer(db)
+        if device is None:
+            return 'Unauthorized', 401
+        user_id = device.user_id
+
+        device.last_seen_ip = request.remote_addr
+        device.last_seen_at = datetime.now()
+        db.commit()
+
+        # Дедуп ДО создания сообщения: повторное накопительное уведомление
+        # Max/VK присылает то же фото — второй раз ничего не создаём.
+        if dedup_key is not None:
+            exists = (db.query(Attachment.id)
+                      .filter(Attachment.user_id == user_id,
+                              Attachment.dedup_key == dedup_key).first())
+            if exists is not None:
+                return 'OK Duplicate', 200
+
+        data = upload.read()
+        if not data:
+            return 'Bad Request', 400
+
+        now = datetime.now()
+        handle, _ = find_or_create_handle(db, user_id, messenger_name, sender)
+        placeholder = {'image': '📷 Фото',
+                       'sticker': '🩷 Стикер',
+                       'video': '🎬 Видео'}.get(kind, '📎 Вложение')
+        msg = Messages(
+            sender=sender,
+            text=caption or placeholder,
+            messenger_name=messenger_name,
+            time=now.strftime("%H:%M"),
+            user_id=user_id,
+            handle_id=handle.id,
+            created_at=now,
+        )
+        db.add(msg)
+        db.flush()
+
+        rel_dir = str(user_id)
+        os.makedirs(os.path.join(_media_root(), rel_dir), exist_ok=True)
+        stored_name = uuid.uuid4().hex + '.enc'
+        stored_path = f"{rel_dir}/{stored_name}"
+        with open(os.path.join(_media_root(), stored_path), 'wb') as f:
+            f.write(encrypt_bytes(data))
+
+        att = Attachment(
+            user_id=user_id,
+            message_id=msg.id,
+            kind=kind,
+            mime=upload.mimetype,
+            original_name=upload.filename or None,
+            stored_path=stored_path,
+            size=len(data),
+            dedup_key=dedup_key,
+        )
+        db.add(att)
+        try:
+            db.commit()
+        except IntegrityError:
+            # Гонка двух одновременных уведомлений с тем же dedup_key.
+            db.rollback()
+            return 'OK Duplicate', 200
+        return 'OK', 200
+
+    @app.route('/attachments/<int:attachment_id>')
+    def attachment_get(attachment_id):
+        if not session.get('user_id'):
+            return 'Unauthorized', 401
+        from data.attachments import Attachment
+        from data.crypto import decrypt_bytes
+        db = get_db()
+        att = (db.query(Attachment)
+               .filter(Attachment.id == attachment_id,
+                       Attachment.user_id == session['user_id']).first())
+        if att is None:
+            return 'Not Found', 404
+        full = os.path.join(_media_root(), att.stored_path)
+        if not os.path.exists(full):
+            return 'Not Found', 404
+        with open(full, 'rb') as f:
+            raw = decrypt_bytes(f.read())
+        return Response(raw, mimetype=att.mime or 'application/octet-stream')
 
     @app.route('/api/ping')
     def api_ping():

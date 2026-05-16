@@ -1,12 +1,15 @@
 package io.skillwood.client
 
+import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.provider.Settings
 import android.view.View
 import android.widget.TextView
@@ -41,6 +44,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statLast: TextView
     private lateinit var statErrors: TextView
     private lateinit var statQueue: TextView
+    private lateinit var btnFilesAccess: MaterialButton
+    private lateinit var btnOverlayAccess: MaterialButton
+    private lateinit var btnFsiAccess: MaterialButton
 
     private val scope = CoroutineScope(Dispatchers.Main)
     private val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
@@ -89,6 +95,16 @@ class MainActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.btn_app_filter).setOnClickListener {
             startActivity(Intent(this, AppFilterActivity::class.java))
         }
+        findViewById<MaterialButton>(R.id.btn_check_access).setOnClickListener {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
+        btnFilesAccess = findViewById(R.id.btn_files_access)
+        btnFilesAccess.setOnClickListener { openAllFilesAccess() }
+        btnOverlayAccess = findViewById(R.id.btn_overlay_access)
+        btnOverlayAccess.setOnClickListener { openOverlayAccess() }
+        btnFsiAccess = findViewById(R.id.btn_fsi_access)
+        btnFsiAccess.setOnClickListener { openFullScreenIntentAccess() }
+        findViewById<MaterialButton>(R.id.btn_miui_bg).setOnClickListener { openMiuiPermissions() }
         findViewById<MaterialButton>(R.id.btn_disconnect).setOnClickListener { onDisconnect() }
     }
 
@@ -136,6 +152,98 @@ class MainActivity : AppCompatActivity() {
         )
         statErrors.text = getString(R.string.stat_errors, settings.errorsStreak)
         statQueue.text = getString(R.string.stat_queue, queue.size())
+        btnFilesAccess.text = getString(
+            if (hasAllFilesAccess()) R.string.action_files_access_granted
+            else R.string.action_files_access
+        )
+        btnOverlayAccess.text = getString(
+            if (Settings.canDrawOverlays(this)) R.string.action_overlay_access_granted
+            else R.string.action_overlay_access
+        )
+        btnFsiAccess.text = getString(
+            if (canUseFullScreenIntent()) R.string.action_fsi_access_granted
+            else R.string.action_fsi_access
+        )
+    }
+
+    /** На Android 14+ USE_FULL_SCREEN_INTENT не автогрантится — нужен явный
+     *  грант пользователем. До 14 — обычное разрешение, считается выданным. */
+    private fun canUseFullScreenIntent(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return true
+        return getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
+    }
+
+    private fun openFullScreenIntentAccess() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // До Android 14 отдельного экрана нет — открываем настройки уведомлений.
+            startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
+            return
+        }
+        try {
+            startActivity(Intent(
+                "android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT",
+                Uri.parse("package:$packageName"),
+            ))
+        } catch (_: Exception) {
+            startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
+        }
+    }
+
+    private fun openOverlayAccess() {
+        try {
+            startActivity(Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName"),
+            ))
+        } catch (_: Exception) {
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
+        }
+    }
+
+    /**
+     * Открывает экран разрешений приложения в MIUI Security Center, где лежит
+     * «Отображать всплывающие окна в фоновом режиме» (MIUI-проприетарное, в
+     * стандартных настройках Android его нет). Сам тумблер выставить нельзя —
+     * только открыть нужный экран. Fallback — обычные детали приложения.
+     */
+    private fun openMiuiPermissions() {
+        val attempts = listOf(
+            Intent("miui.intent.action.APP_PERM_EDITOR").apply {
+                setClassName("com.miui.securitycenter",
+                    "com.miui.permcenter.permissions.PermissionsEditorActivity")
+                putExtra("extra_pkgname", packageName)
+            },
+            Intent("miui.intent.action.APP_PERM_EDITOR").apply {
+                setClassName("com.miui.securitycenter",
+                    "com.miui.permcenter.permissions.AppPermissionsEditorActivity")
+                putExtra("extra_pkgname", packageName)
+            },
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:$packageName")),
+        )
+        for (i in attempts) {
+            try { startActivity(i); return } catch (_: Exception) { /* пробуем следующий */ }
+        }
+    }
+
+    private fun hasAllFilesAccess(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+            Environment.isExternalStorageManager()
+
+    private fun openAllFilesAccess() {
+        // Всегда открываем системный экран (как кнопка «Доступ к уведомлениям»),
+        // чтобы можно было и выдать, и отозвать/перепроверить вручную.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        try {
+            startActivity(Intent(
+                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                Uri.parse("package:$packageName"),
+            ))
+        } catch (_: Exception) {
+            startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+        }
     }
 
     private fun isNotificationListenerEnabled(): Boolean {

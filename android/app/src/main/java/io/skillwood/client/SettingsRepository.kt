@@ -30,6 +30,9 @@ class SettingsRepository(context: Context) {
     val errorsStreak: Int
         get() = prefs.getInt(KEY_ERRORS, 0)
 
+    val unauthStreak: Int
+        get() = prefs.getInt(KEY_UNAUTH_STREAK, 0)
+
     val lastSentAt: Long
         get() = prefs.getLong(KEY_LAST_SENT, 0)
 
@@ -48,16 +51,51 @@ class SettingsRepository(context: Context) {
 
     fun isPackageAllowed(packageName: String): Boolean = packageName in allowedPackages
 
+    /** Уже отправляли это медиа? Защита от повторных накопительных уведомлений. */
+    fun wasMediaSent(key: String): Boolean =
+        prefs.getStringSet(KEY_SENT_MEDIA, emptySet())!!.contains(key)
+
+    fun markMediaSent(key: String) {
+        val cur = HashSet(prefs.getStringSet(KEY_SENT_MEDIA, emptySet())!!)
+        // Дедуп нужен только против повторов в близких по времени уведомлениях,
+        // полная история не требуется — при переполнении просто сбрасываем.
+        if (cur.size >= 500) cur.clear()
+        cur.add(key)
+        prefs.edit().putStringSet(KEY_SENT_MEDIA, cur).apply()
+    }
+
     fun recordSuccess() {
         prefs.edit()
             .putLong(KEY_SENT, sent + 1)
             .putLong(KEY_LAST_SENT, System.currentTimeMillis())
             .putInt(KEY_ERRORS, 0)
+            .putInt(KEY_UNAUTH_STREAK, 0)
             .apply()
     }
 
     fun recordError() {
         prefs.edit().putInt(KEY_ERRORS, errorsStreak + 1).apply()
+    }
+
+    /** Инкрементит счётчик подряд идущих 401 и возвращает новое значение. */
+    fun recordUnauthorized(): Int {
+        val next = unauthStreak + 1
+        prefs.edit().putInt(KEY_UNAUTH_STREAK, next).apply()
+        return next
+    }
+
+    /**
+     * Стирает только то, что относится к аккаунту (токен, имя пользователя/устройства,
+     * счётчик 401). Сохраняет URL сервера, whitelist пакетов и накопленную статистику —
+     * пользователю не придётся настраивать клиента с нуля после повторного re-connect.
+     */
+    fun clearAuth() {
+        prefs.edit()
+            .remove(KEY_TOKEN)
+            .remove(KEY_USER_NAME)
+            .remove(KEY_DEVICE_NAME)
+            .putInt(KEY_UNAUTH_STREAK, 0)
+            .apply()
     }
 
     fun clear() {
@@ -74,5 +112,7 @@ class SettingsRepository(context: Context) {
         private const val KEY_LAST_SENT = "stats_last_sent_at"
         private const val KEY_ERRORS = "stats_errors_streak"
         private const val KEY_ALLOWED_PACKAGES = "allowed_packages"
+        private const val KEY_UNAUTH_STREAK = "auth_unauth_streak"
+        private const val KEY_SENT_MEDIA = "sent_media_keys"
     }
 }

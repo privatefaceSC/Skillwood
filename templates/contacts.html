@@ -81,6 +81,34 @@
         word-wrap: break-word; line-height: 1.35;
     }
     .bubble .text { color: #1a2230; }
+    .bubble .media-img {
+        display: block; margin-top: 6px; max-width: 260px; max-height: 340px;
+        border-radius: 10px; cursor: zoom-in; object-fit: cover;
+    }
+    .bubble .sticker-img {
+        display: block; margin-top: 6px; width: 130px; height: 130px;
+        object-fit: contain; background: transparent;
+    }
+    .bubble .media-video {
+        display: block; margin-top: 6px; max-width: 280px; max-height: 360px;
+        border-radius: 10px; background: #000;
+    }
+    .lightbox {
+        display: none; position: fixed; inset: 0; z-index: 1080;
+        background: rgba(0, 0, 0, .92); align-items: center; justify-content: center;
+        cursor: zoom-out;
+    }
+    .lightbox.open { display: flex; }
+    .lightbox img {
+        max-width: 96vw; max-height: 96vh; object-fit: contain;
+        border-radius: 6px; box-shadow: 0 0 40px rgba(0, 0, 0, .6);
+    }
+    .lightbox .lb-close {
+        position: fixed; top: 16px; right: 22px; color: #fff;
+        font-size: 34px; line-height: 1; cursor: pointer; user-select: none;
+        opacity: .85;
+    }
+    .lightbox .lb-close:hover { opacity: 1; }
     .bubble .time { font-size: 10px; color: #9ca3af; margin-top: 2px; text-align: right; }
     .bubble .truncated-note {
         font-size: 11px; color: #b45309; background: #fef3c7;
@@ -188,6 +216,19 @@
                                 <span class="source">{{ m.messenger_name }} · {{ m.display_author or m.sender }}</span>
                                 <div class="bubble">
                                     <div class="text">{{ m.text }}</div>
+                                    {% for a in m.media %}
+                                        {% if a.kind == 'sticker' %}
+                                        <img class="sticker-img" src="/attachments/{{ a.id }}"
+                                             loading="lazy" alt="стикер">
+                                        {% elif a.kind == 'video' %}
+                                        <video class="media-video" src="/attachments/{{ a.id }}"
+                                               controls preload="metadata"></video>
+                                        {% else %}
+                                        <img class="media-img" src="/attachments/{{ a.id }}"
+                                             data-full="/attachments/{{ a.id }}"
+                                             loading="lazy" alt="фото">
+                                        {% endif %}
+                                    {% endfor %}
                                     {% if m.text and m.text|length == 1024 %}
                                     <div class="truncated-note">
                                         ⚠ Сообщение обрезано Android до 1024 символов.
@@ -211,6 +252,36 @@
         </div>
     </div>
 </div>
+
+<div class="lightbox" id="lightbox">
+    <span class="lb-close" id="lb-close">&times;</span>
+    <img id="lb-img" src="" alt="фото">
+</div>
+
+<script>
+// Полноэкранный просмотр фото: клик по .media-img открывает оверлей поверх
+// страницы (не переход по ссылке и не скачивание). Делегирование на document —
+// работает и для сообщений, дорисованных поллингом.
+(function() {
+    const box = document.getElementById('lightbox');
+    const img = document.getElementById('lb-img');
+    if (!box || !img) return;
+    function open(src) { img.src = src; box.classList.add('open'); }
+    function close() { box.classList.remove('open'); img.src = ''; }
+    document.addEventListener('click', function(e) {
+        const t = e.target;
+        if (t && t.classList && t.classList.contains('media-img')) {
+            e.preventDefault();
+            open(t.dataset.full || t.src);
+        }
+    });
+    box.addEventListener('click', close);
+    document.getElementById('lb-close').addEventListener('click', close);
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') close();
+    });
+})();
+</script>
 
 <script>
 // Polling списка контактов слева — чтобы бэйджи "непрочитано", превью
@@ -517,10 +588,20 @@
                     Откройте ${escapeHtml(m.messenger_name)}, чтобы прочесть целиком.
                   </div>`
                 : '';
+            const media = (m.attachments || [])
+                .map(a => {
+                    if (a.kind === 'sticker')
+                        return `<img class="sticker-img" src="/attachments/${a.id}" loading="lazy" alt="стикер">`;
+                    if (a.kind === 'video')
+                        return `<video class="media-video" src="/attachments/${a.id}" controls preload="metadata"></video>`;
+                    return `<img class="media-img" src="/attachments/${a.id}" data-full="/attachments/${a.id}" loading="lazy" alt="фото">`;
+                })
+                .join('');
             return `<div class="bubble-row" data-message-id="${m.id}">
                 <span class="source">${escapeHtml(m.messenger_name)} · ${escapeHtml(m.display_author || m.sender)}</span>
                 <div class="bubble">
                     <div class="text">${escapeHtml(m.text)}</div>
+                    ${media}
                     ${truncated}
                     <div class="time">${escapeHtml(m.time)}</div>
                 </div>

@@ -6,6 +6,17 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- Нужно, чтобы тихо удалять фото Telegram из общей галереи после
+         пересылки на сервер (файлы создаёт Telegram, не мы). -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
+    <!-- Поднять Telegram на пару секунд из фона, чтобы он докачал медиа
+         (через прокси в фоне он сам не качает). На Android 14 + HyperOS прямой
+         startActivity из фона при выключенном экране заблокирован (BAL) —
+         единственный системно-санкционированный путь поднять WakeActivity
+         с заблокированного/погашенного экрана — full-screen-intent. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
 
     <queries>
         <intent>
@@ -35,6 +46,13 @@
                   android:exported="false"
                   android:label="@string/app_filter_title"
                   android:parentActivityName=".MainActivity"/>
+
+        <activity android:name=".WakeActivity"
+                  android:exported="false"
+                  android:theme="@android:style/Theme.Translucent.NoTitleBar"
+                  android:excludeFromRecents="true"
+                  android:noHistory="true"
+                  android:launchMode="singleInstance"/>
 
         <service android:name=".SkillwoodListener"
                  android:exported="true"

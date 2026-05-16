@@ -4,6 +4,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -83,6 +85,31 @@ class ApiClient(private val settings: SettingsRepository) {
                 Result.Success(Unit)
             }
         }
+
+    suspend fun sendMedia(
+        sender: String,
+        messenger: String,
+        kind: String,
+        dedupKey: String,
+        bytes: ByteArray,
+        mime: String?,
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val url = settings.serverUrl ?: return@withContext err(Result.ErrorKind.Unknown, "no url")
+        val token = settings.deviceToken
+            ?: return@withContext err(Result.ErrorKind.Unauthorized, "no token")
+        val fileType = (mime ?: "application/octet-stream").toMediaTypeOrNull()
+        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("sender", sender)
+            .addFormDataPart("messenger_name", messenger)
+            .addFormDataPart("kind", kind)
+            .addFormDataPart("dedup_key", dedupKey)
+            .addFormDataPart("file", "media", bytes.toRequestBody(fileType))
+            .build()
+        execute(
+            Request.Builder().url("$url/add_media")
+                .header("Authorization", "Bearer $token").post(body).build()
+        ) { _ -> Result.Success(Unit) }
+    }
 
     private inline fun <T> execute(
         request: Request,
