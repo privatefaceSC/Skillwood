@@ -1,3 +1,5 @@
+import os
+
 import sqlalchemy as sa
 import sqlalchemy.orm as orm
 from sqlalchemy.orm import Session
@@ -15,7 +17,16 @@ def global_init(db_file):
     if not db_file or not db_file.strip():
         raise Exception("Необходимо указать файл базы данных.")
 
-    conn_str = f'sqlite:///{db_file.strip()}?check_same_thread=False'
+    db_file = db_file.strip()
+    # На хостинге (Replit) ФС при старте откатывается к git-состоянию, а
+    # каталог db/ в .gitignore — его не будет. SQLite не создаёт
+    # промежуточные каталоги сам, поэтому создаём их (для ":memory:"
+    # и пути без каталога os.path.dirname вернёт "" — пропускаем).
+    db_dir = os.path.dirname(db_file)
+    if db_dir and db_file != ":memory:":
+        os.makedirs(db_dir, exist_ok=True)
+
+    conn_str = f'sqlite:///{db_file}?check_same_thread=False'
     print(f"Подключение к базе данных по адресу {conn_str}")
 
     engine = sa.create_engine(conn_str, echo=False)

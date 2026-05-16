@@ -111,6 +111,16 @@ def _media_root() -> str:
     return os.environ.get('SKILLWOOD_MEDIA_ROOT') or os.path.join(os.getcwd(), 'media')
 
 
+def _avatar_file(user_id) -> str:
+    """Зашифрованный файл аватарки пользователя (хранится как и прочее медиа)."""
+    return os.path.join(_media_root(), str(user_id), 'avatar.enc')
+
+
+def _avatar_mime_file(user_id) -> str:
+    """MIME аватарки в открытом виде (не секрет) — чтобы корректно отдать <img>."""
+    return os.path.join(_media_root(), str(user_id), 'avatar.mime')
+
+
 def register_routes(app: Flask) -> None:
 
     @app.route('/')
@@ -145,7 +155,51 @@ def register_routes(app: Flask) -> None:
             contacts_count=contacts_count,
             messages_count=messages_count,
             pending_suggestions=pending_suggestions,
+            has_avatar=os.path.exists(_avatar_file(user.id)),
         )
+
+    @app.route('/home/avatar', methods=['GET', 'POST'])
+    def avatar():
+        """Аватарка пользователя: загрузка через веб-форму и отдача в <img>.
+
+        Файл шифруется тем же Fernet, что и медиа сообщений, и лежит в media/
+        (БД не трогаем — отдельная колонка не нужна).
+        """
+        if not session.get('user_id'):
+            return redirect('/login') if request.method == 'POST' \
+                else ('Unauthorized', 401)
+        user_id = session['user_id']
+
+        if request.method == 'POST':
+            from data.crypto import encrypt_bytes
+            upload = request.files.get('avatar')
+            if upload is None or not upload.filename:
+                return redirect('/home')
+            data = upload.read()
+            mime = (upload.mimetype or '').lower()
+            # Простая защита формы: только изображения, до 5 МБ.
+            if not data or len(data) > 5 * 1024 * 1024 \
+                    or not mime.startswith('image/'):
+                return redirect('/home')
+            os.makedirs(os.path.join(_media_root(), str(user_id)), exist_ok=True)
+            with open(_avatar_file(user_id), 'wb') as f:
+                f.write(encrypt_bytes(data))
+            with open(_avatar_mime_file(user_id), 'w', encoding='utf-8') as f:
+                f.write(mime)
+            return redirect('/home')
+
+        # GET — отдать расшифрованную аватарку.
+        from data.crypto import decrypt_bytes
+        path = _avatar_file(user_id)
+        if not os.path.exists(path):
+            return 'Not Found', 404
+        with open(path, 'rb') as f:
+            raw = decrypt_bytes(f.read())
+        mime = 'image/jpeg'
+        if os.path.exists(_avatar_mime_file(user_id)):
+            with open(_avatar_mime_file(user_id), 'r', encoding='utf-8') as f:
+                mime = f.read().strip() or mime
+        return Response(raw, mimetype=mime)
 
     @app.route('/register', methods=['GET', 'POST'])
     def register():
@@ -721,4 +775,8 @@ def _generate_code() -> str:
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=True)
+    # Порт берём из окружения (Replit/start.sh задаёт PORT), локально — 5000.
+    port = int(os.environ.get('PORT', '5000'))
+    # use_reloader=False: на хостинге reloader плодит дочерний процесс и мешает
+    # биндингу порта; debug и так выключен.
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)

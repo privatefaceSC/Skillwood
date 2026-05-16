@@ -1,0 +1,3 @@
+# Скрипты запуска должны иметь LF-переводы строк, иначе bash на Linux
+# (Replit) падает на символе \r. Защита от core.autocrlf=true на Windows.
+*.sh text eol=lf
